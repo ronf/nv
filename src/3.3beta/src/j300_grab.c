@@ -1,0 +1,536 @@
+/*
+ *	Netvideo version 3.3
+ *	Written by Ron Frederick <frederick@parc.xerox.com>
+ *
+ *	Frame grabber for DEC Sound and Motion J300 TurboChannel card
+ *	using either Multimedia Services for DEC OSF/1 AXP or 
+ *	DEC Systems Research Center's jv2driver.
+ *
+ *	Written by Mark Prior		<mrp@itd.adelaide.edu.au>,
+ *		   Lance Berc		<berc@src.dec.com>,
+ *	       and Steve McCanne	<mccanne@ee.lbl.gov>
+ */
+
+#if defined(J300)
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/time.h>
+#ifdef J300_MME
+#include <mme/mme_api.h>
+#endif
+#include "tcl.h"
+#include "sized_types.h"
+#include "vid_image.h"
+#include "vid_code.h"
+#include "j300_grab.h"
+#include "jvs.h"
+
+#ifdef MME_FRAME
+#define	MME_BUFFERS	1
+#else
+#define	MME_BUFFERS	3
+#endif
+
+/* If the frame is more than 1/2 sec old, get an new one */
+#define	OLDFRAME	500000
+
+#define	FULL		1
+#define	HALF		2
+#define	QUARTER		4
+
+extern Tcl_Interp *interp;
+extern char *getenv();
+
+static int jv2Grabber=0, jvfd = -1;
+static int devices=0, bufShmid, xmit_size, xmit_color, width, height;
+static char *bufAddr;
+static struct timeval lastgrab;
+
+#ifndef J300_MME
+static int videoPort=1, videoStandard=1;
+#else
+static DWORD videoPort = 1, videoStandard = VIDEO_STANDARD_NTSC;
+static LPHVIDEO lphvideo = NULL;
+static LPBITMAPINFOHEADER bmh = NULL;
+static LPVIDEOHDR videoHdr = NULL;
+
+static struct structHdrs {
+    VIDEOHDR		videoHdr[MME_BUFFERS];
+    HVIDEO		hvideo;
+    BITMAPINFOHEADER	bmh;
+} *structHdrsPtr = NULL;
+#endif
+
+/*ARGSUSED*/
+static char *J300_TracePort(ClientData clientData, Tcl_Interp *interp,
+			    char *name1, char *name2, int flags)
+{
+    int port=atoi(Tcl_GetVar2(interp, name1, name2, TCL_GLOBAL_ONLY));
+
+#ifdef J300_MME
+    if (port == 0 && videoPort != 0) { /* changing to S-Video */
+	switch (videoStandard) {
+	case VIDEO_STANDARD_NTSC:
+	    videoStandard = VIDEO_STANDARD_SVIDEO525;
+	    break;
+	case VIDEO_STANDARD_SECAM:
+	    Tcl_SetVar(interp, "j300Format", "2", TCL_GLOBAL_ONLY);
+	    /*FALLTHROUGH*/
+	case VIDEO_STANDARD_PAL:
+	    videoStandard = VIDEO_STANDARD_SVIDEO625;
+	    break;
+	}
+
+	Tcl_VarEval(interp, "j300FormatSVideo", NULL);
+    } else if (port != 0 && videoPort == 0) { /* changing from S-Video */
+	switch (videoStandard) {
+	case VIDEO_STANDARD_SVIDEO525:
+	    videoStandard = VIDEO_STANDARD_NTSC;
+	    break;
+	case VIDEO_STANDARD_SVIDEO625:
+	    videoStandard = VIDEO_STANDARD_PAL;
+	    break;
+	}
+
+	Tcl_VarEval(interp, "j300FormatComposite", NULL);
+    }
+#endif
+
+    videoPort = port;
+    return NULL;
+}
+
+/*ARGSUSED*/
+static char *J300_TraceFormat(ClientData clientData, Tcl_Interp *interp,
+			      char *name1, char *name2, int flags)
+{
+    int format=atoi(Tcl_GetVar2(interp, name1, name2, TCL_GLOBAL_ONLY));
+
+#ifdef J300_MME
+    switch (format) {
+    case 0:
+	videoStandard = 0;
+	break;
+    case 1:
+	if (videoPort == 0)
+	    videoStandard = VIDEO_STANDARD_SVIDEO525;
+	else
+	    videoStandard = VIDEO_STANDARD_NTSC;
+	break;
+    case 2:
+	if (videoPort == 0)
+	    videoStandard = VIDEO_STANDARD_SVIDEO625;
+	else
+	    videoStandard = VIDEO_STANDARD_PAL;
+	break;
+    case 3:
+	videoStandard = VIDEO_STANDARD_SECAM;
+	break;
+    }
+#endif
+
+    return NULL;
+}
+
+#ifdef J300_MME
+#ifndef MME_FRAME
+static void J300_ReuseBuffer(HVIDEO hVideo, DWORD wMsg, DWORD dwInstance,
+			     LPVIDEOHDR srvvideohdr, DWORD param2)
+{
+    switch (wMsg) {
+    case MM_DRVM_OPEN:
+	    break;
+    case MM_DRVM_DATA:
+	    break;
+    case MM_DRVM_CLOSE:
+	    break;
+    }
+}
+#endif /*!MME_FRAME*/
+
+static int MME_Grab(uint8 *y_data, int8 *uv_data)
+{
+    int i;
+    DWORD status;
+    uint64 *position, v;
+    uint32 y, uv, *yp=(uint32 *)y_data, *uvp=(uint32 *)uv_data;
+
+    status = videoFrame(*lphvideo, videoHdr);
+    if (videoHdr->dwBytesUsed == 0) return 0;
+
+    position = (uint64 *)videoHdr->lpData;
+    for (i=0; i<videoHdr->dwBytesUsed; i += 8) {
+	v = *position++;
+	y = v & 0xff;
+	y |= ((v >> 8) & 0xff00);
+	y |= ((v >> 16) & 0xff0000);
+	*yp++ = y | ((v >> 24) & 0xff000000);
+
+	if (xmit_color) {
+	    uv = (v >> 8) & 0xff;
+	    uv |= ((v >> 16) & 0xff00);
+	    uv |= ((v >> 24) & 0xff0000);
+	    uv |= ((v >> 32) & 0xff000000);
+	    *uvp++ = uv ^ 0x80808080;
+	}
+    }
+
+    return 1;
+}
+#endif /*J300_MME*/
+
+static int JV2_Grab(uint8 *y_data, int8 *uv_data)
+{
+    int i, returnShmid, returnLength, status;
+    uint64 *position = (uint64 *)bufAddr, v;
+    uint32 y, uv, *yp=(uint32 *)y_data, *uvp=(uint32 *)uv_data;
+    struct timeval now;
+    uint64 lt, nt;
+
+    status = JvsWaitComp(jvfd, &returnShmid, &returnLength);
+    gettimeofday(&now, NULL);
+	
+    /* It's nice to have a 64bit machine */
+    lt = (lastgrab.tv_sec * 1000000) + lastgrab.tv_usec;
+    nt = (now.tv_sec * 1000000) + now.tv_usec;
+
+    /* do we have a frame waiting and is it "new" enough? */
+    if ((status < 0) ||  (nt - lt > OLDFRAME)) {
+	do {
+	    status = JvsStartComp(jvfd, bufShmid);
+	    gettimeofday(&now, NULL);
+	    if (status < 0)
+		fprintf(stderr, "StartComp failure\n");
+	    else {
+		status = JvsWaitComp(jvfd, &returnShmid, &returnLength);
+		if (status < 0) fprintf(stderr, "WaitComp failure\n");
+	    }
+	} while (status < 0);
+    }
+
+    lastgrab = now;
+
+    /* The return length was set with JvsSetComp */
+    returnLength = width*height*2;
+
+    /* Split out the Y and UV bytes a longword (64 bits) at a time */
+    for (i=0; i<returnLength; i += 8) {
+	v = *position++;
+	y = v & 0xff;
+	y |= ((v >> 8) & 0xff00);
+	y |= ((v >> 16) & 0xff0000);
+	*yp++ = y | ((v >> 24) & 0xff000000);
+
+	if (xmit_color) {
+	    uv = (v >> 8) & 0xff;
+	    uv |= ((v >> 16) & 0xff00);
+	    uv |= ((v >> 24) & 0xff0000);
+	    uv |= ((v >> 32) & 0xff000000);
+	    *uvp++ = uv ^ 0x80808080;
+	}
+    }
+
+    while (1) {
+	if (JvsStartComp(jvfd, bufShmid) >= 0) break;
+	fprintf(stderr, "StartComp failure\n");
+    }
+
+    return 1;
+}
+
+int J300_Probe(void)
+{
+    int port, config=0;
+    char *ports;
+    char buf[64];
+    static int trace=0;
+    JvsSetCompressReq p1;
+    JvsSetCompressRep p2;
+
+    if (!trace) {
+	Tcl_TraceVar(interp, "j300Port", TCL_TRACE_WRITES, J300_TracePort,
+		     NULL);
+	Tcl_TraceVar(interp, "j300Format", TCL_TRACE_WRITES, J300_TraceFormat,
+		     NULL);
+	trace = 1;
+    }
+
+#ifdef J300_MME
+    devices = videoGetNumDevs();
+    if (devices != 0) {
+	jv2Grabber = 0;
+	config = VID_GREYSCALE|VID_COLOR|VID_SMALL|VID_MEDIUM|VID_LARGE;
+    } else if (mmeServerFileDescriptor() != -1) {
+	/* If MME is alive there is no need to check for JV2 */
+	return 0;
+    } else
+#endif
+    {
+	/*
+	 * There is no MME server running so maybe this
+	 * machine has DEC SRC's JV2 driver instead
+	 */
+	port = JVS_SOCKET;
+	if (ports = (char *) getenv("JVDRIVER_PORT")) {
+	    if (sscanf(ports, "%d", &port) <= 0) port = JVS_SOCKET;
+	}
+
+	if ((jvfd = JvsOpen("", port)) < 0) /* nice try but ... */
+	    return 0;
+
+	p1.qfactor = 0;
+	p1.frameskip = 0;
+	p1.type = JVS_YUV;
+
+	p1.xdec = 1;
+	p1.ydec = 1;
+	JvsSetCompRaw(jvfd, &p1, &p2);
+
+	config = VID_GREYSCALE|VID_COLOR|VID_SMALL|VID_MEDIUM;
+
+	/* The J300 doesn't support full-frame PAL input */
+	if (p2.width*3 == p2.height*4) config |= VID_LARGE;
+
+	close(jvfd);
+	jv2Grabber = 1;
+    }
+
+    sprintf(buf, "%d", videoStandard);
+    Tcl_SetVar(interp, "j300Format", buf, TCL_GLOBAL_ONLY);
+    sprintf(buf, "%d", videoPort);
+    Tcl_SetVar(interp, "j300Port", buf, TCL_GLOBAL_ONLY);
+    return config;
+}
+
+char *J300_Attach(void)
+{
+    return ".grabControls.j300";
+}
+
+void J300_Detach(void)
+
+{
+}
+
+#ifdef J300_MME
+/*ARGSUSED*/
+static grabproc_t *MME_Start(int max_framerate, int config,
+			     reconfigproc_t *reconfig)
+{
+    int i, devices;
+    grabproc_t *grab;
+    MMRESULT status;
+
+    xmit_size = (config & VID_SIZEMASK);
+    xmit_color = (config & VID_COLOR);
+
+    if ((structHdrsPtr = (struct structHdrs *)
+	    mmeAllocMem(sizeof(struct structHdrs))) == NULL) return NULL;
+
+    lphvideo = &(structHdrsPtr->hvideo);
+    devices = videoGetNumDevs();
+    for (i=0; i<devices; i++)
+	if (videoOpen(lphvideo, i, VIDEO_IN) == DV_ERR_OK) break;
+
+    if (i == devices) {
+	mmeFreeMem(structHdrsPtr);
+	return NULL;
+    }
+
+    if (videoStandard == VIDEO_STANDARD_NTSC ||
+	videoStandard == VIDEO_STANDARD_SVIDEO525) {
+	width = NTSC_WIDTH;
+	height = NTSC_HEIGHT;
+    } else {
+	width = PAL_WIDTH;
+	height = PAL_HEIGHT;
+    }
+
+    switch (xmit_size) {
+    case VID_SMALL:
+	width /= 2;
+	height /= 2;
+	break;
+    case VID_MEDIUM:
+	break;
+    case VID_LARGE:
+	width *= 2;
+	height *= 2;
+	break;
+    }
+
+    videoSetPortNum(*lphvideo, videoPort);
+    videoSetStandard(*lphvideo, videoStandard);
+    bmh = &(structHdrsPtr->bmh);
+    bzero(bmh, sizeof(BITMAPINFOHEADER));
+    bmh->biSize = sizeof(BITMAPINFOHEADER);
+    bmh->biWidth = width;
+    bmh->biHeight = height;
+    bmh->biPlanes = 1;
+    bmh->biBitCount = 16;
+    bmh->biCompression = BICOMP_DECYUVDIB;
+    if (videoConfigure((HVIDEO)*lphvideo, DVM_FORMAT,
+		       VIDEO_CONFIGURE_GET|VIDEO_CONFIGURE_MIN, 0, bmh,
+		       bmh->biSize, 0, 0) != DV_ERR_OK) {
+	mmeFreeMem(structHdrsPtr);
+	return NULL;
+    }
+
+    if (videoConfigure((HVIDEO)*lphvideo, DVM_FORMAT, VIDEO_CONFIGURE_SET,
+		       0, bmh, bmh->biSize, 0, 0) != DV_ERR_OK) {
+	mmeFreeMem(structHdrsPtr);
+	return NULL;
+    }
+
+#ifndef MME_FRAME
+    if ((status = videoStreamInit((HVIDEO)*lphvideo, 0, J300_ReuseBuffer, NULL,
+				  CALLBACK_FUNCTION)) != DV_ERR_OK) {
+	mmeFreeMem(structHdrsPtr);
+	return NULL;
+    }
+#endif
+
+    for (i=0; i<MME_BUFFERS; i++) {
+	videoHdr = &structHdrsPtr->videoHdr[i];
+	videoHdr->lpData = mmeAllocBuffer(bmh->biSizeImage);
+	videoHdr->dwBufferLength = bmh->biSizeImage;
+	videoHdr->dwBytesUsed = 0;
+	videoHdr->dwTimeCaptured = 0;
+	videoHdr->dwUser = 0;
+	videoHdr->dwFlags = 0;
+	videoHdr->dwReserved[0] = (DWORD)NULL;
+
+#ifndef MME_FRAME
+	if (videoStreamPrepareHeader((HVIDEO)*lphvideo, videoHdr,
+				     sizeof(videoHdr)) != DV_ERR_OK) {
+	    mmeFreeMem(structHdrsPtr);
+	    return NULL;
+	}
+
+	if ( videoStreamAddBuffer((HVIDEO)*lphvideo, videoHdr,
+				  sizeof(videoHdr)) != DV_ERR_OK) {
+	    mmeFreeMem(structHdrsPtr);
+	    return NULL;
+	}
+#endif
+    }
+
+#ifndef MME_FRAME
+    if ((status = videoStreamStart((HVIDEO)*lphvideo)) != DV_ERR_OK) {
+	mmeFreeMem(structHdrsPtr);
+	return NULL;
+    }
+#endif
+
+    (*reconfig)(xmit_color, width, height);
+    return MME_Grab;
+}
+#endif /*J300_MME*/
+
+/*ARGSUSED*/
+static grabproc_t *JV2_Start(int maxFramerate, int config,
+			     reconfigproc_t *reconfig)
+{
+    JvsSetCompressReq p1;
+    JvsSetCompressRep p2;
+    int port, status;
+    char *ports;
+
+    xmit_size = (config & VID_SIZEMASK);
+    xmit_color = (config & VID_COLOR);
+
+    port = JVS_SOCKET;
+    if (ports = getenv("JVDRIVER_PORT")) {
+	if (sscanf(ports, "%d", &port) <= 0) port = JVS_SOCKET;
+    }
+
+    if ((jvfd = JvsOpen("", port)) < 0) return NULL;
+
+    p1.qfactor = 0;
+    p1.frameskip = 0;
+    p1.type = JVS_YUV;
+
+    switch (xmit_size) {
+    case VID_SMALL:
+	p1.xdec = 4;
+	p1.ydec = 4;
+	break;
+    case VID_MEDIUM:
+	p1.xdec = 2;
+	p1.ydec = 2;
+	break;
+    case VID_LARGE:
+	p1.xdec = 1;
+	p1.ydec = 1;
+	break;
+    default:
+	p1.xdec = 2;
+	p1.ydec = 2;
+	break;
+    }
+
+    JvsSetCompRaw(jvfd, &p1, &p2);
+    width = p2.width;
+    height = p2.height;
+    if ((p1.xdec == 1) && (p1.ydec == 1) && (width*3 != height*4)) {
+	/* JV2 can't grab full size in PAL or SECAM mode */
+	p1.xdec = 2;
+	p1.ydec = 2;
+	JvsSetCompRaw(jvfd, &p1, &p2);
+	width = p2.width;
+	height = p2.height;
+    }
+
+    if (JvsAllocateBuf(jvfd, JVS_INPUT, JVS_YUV, width, height, &bufShmid)<0) {
+	close(jvfd);
+	return NULL;
+    }
+
+    if ((int)(bufAddr = (char *)shmat(bufShmid, 0, 0)) < 0) {
+	close(jvfd);
+	return NULL;
+    }
+
+    gettimeofday(&lastgrab, NULL);
+    status = JvsStartComp(jvfd, bufShmid);
+    
+    (*reconfig)(xmit_color, width, height);
+    return JV2_Grab;
+}
+
+grabproc_t *J300_Start(int max_framerate, int config, reconfigproc_t *reconfig)
+{
+    Tcl_VarEval(interp, "j300DisableControls", NULL);
+
+    J300_Probe();
+    if (jv2Grabber) {
+	return JV2_Start(max_framerate, config, reconfig);
+    } else {
+#ifdef J300_MME
+	return MME_Start(max_framerate, config, reconfig);
+#else
+	return NULL;
+#endif
+    }
+}
+
+void J300_Stop(void)
+
+{
+    Tcl_VarEval(interp, "j300EnableControls", NULL);
+
+    if (jv2Grabber) {
+	shmdt(bufAddr);
+	JvsDeallocBuf(jvfd, bufShmid);
+	close(jvfd);
+    } else {
+#ifdef J300_MME
+	videoClose(*lphvideo);
+	mmeFreeMem(structHdrsPtr);
+#endif
+    }
+}
+
+#endif /* J300 */

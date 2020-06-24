@@ -1,0 +1,10 @@
+This is the DECstation 5000 binary distribution of the 'nv' network video tool.
+Enclosed is this README file, a man page, and a MIPS executable for Ultrix
+4.x. Video capture support is provided for the PIP frame grabber card. Users
+without the PIP card will be able to use the tool in a receive-only mode.
+
+'nv' is still very much a work in progress, but hopefully you will find the
+program adequate for basic unicast and multicast transmission of video across
+the Internet. Comments and suggestions, as well as bug report, are extremely
+welcome! Please send any such comments via email to the author, Ron Frederick
+<frederick@parc.xerox.com>.

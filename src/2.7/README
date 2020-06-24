@@ -1,0 +1,14 @@
+This is the source distribution of the 'nv' network video tool. The actual
+sources can be found in the "src" subdirectory. Two build directories, for
+the sun4 and the sgi are also included, with a simple Makefile. Some paths
+in the makefile will need to be set to appropriate local values.
+
+In order to actually build 'nv', you will need Tcl 6.4 and Tk 2.3 installed on
+the system. It also requires the VideoPix library on the SPARCstation, or the
+IndigoVideo "svideo" library on the Indigo.
+
+'nv' is still very much a work in progress, but hopefully you will find the
+program adequate for basic unicast and multicast transmission of video across
+the Internet. Comments and suggestions, as well as bug report, are extremely
+welcome! Please send any such comments via email to the author, Ron Frederick
+<frederick@parc.xerox.com>.

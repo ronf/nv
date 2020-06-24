@@ -1,0 +1,125 @@
+.TH NV 1  "22 Mar 1993"
+.SH NAME
+nv \- X11 videoconferencing tool
+.SH SYNOPSIS
+.na
+.B nv
+[ options ] [
+.I addr
+[
+.I port
+] ]
+.br
+.ad
+.SH DESCRIPTION
+.LP
+.I nv
+allows users to transmit and receive slow frame rate video via UDP/IP across
+an internet. Video streams can be either sent point to point, or sent to
+several destinations simultaneously using IP multicast. Receivers need no
+special hardware \(em just an X display. Transmitters need some sort of frame
+capture hardware. Several different boards are supported so far, with more to
+come in future releases.
+.PP
+The video transmitted is a 320x240 image for NTSC, or 384x288 for PAL. It can
+be sent either as 8-bit greyscale, or 24-bit YUV 4:2:2 color. It will be
+displayed at the receiver using a 24-bit color visual if one is available. If
+not, it will be dithered using whatever the default visual is.  The frame rate
+varies with the amount of motion and the bandwidth available. Frame rates of
+3\-5 frames/second are typical for the default bandwidth of 128kbps. Some
+systems will support higher frame rates if the bandwidth is raised.
+.\"-------------
+.SH OPTIONS
+.I nv
+allows you to specify various options either on the command line or using X
+resources. The list of options is as follows:
+.LP
+.RS
+.nf
+.ta \w'-maxBandwidth   'u +\w'nv.maxBandwidth:   'u
+.I "Option	X Resource	Default"
+-brightness	Nv.brightness:	50
+-contrast	Nv.contrast:	50
+-interface	Nv.interface:	(primary host name)
+-maxBandwidth	Nv.maxBandwidth:	128
+-maxFrameRate	Nv.maxFrameRate:	(machine-specific value)
+-name	Nv.name:	(username@localhostname)
+-recvSize	Nv.recvSize:	normal
+-title	Nv.title:	nv (version)
+-ttl	Nv.ttl:	16
+.fi
+.DT
+.RE
+.PP
+All options can be abbreviated to their smallest unique subset (generally a
+single letter). In addition to the above list, nv understands the standard
+X switch of "-display" to use something other than $DISPLAY. Also, the
+"-recvOnly" switch can be provided to skip any attempt to open a frame
+grabber.
+.PP
+The brightness & contrast parameters range from 0 to 100. The maxBandwidth is
+specified in kbits/second. The TTL can range from 0 to 255.
+.PP
+For transmitters, the maxFrameRate parameter ranges from 0 to 15 frames/second,
+where 0 is a machine-specific default value. The default max frame rate on the
+Indigo is 10 frames/sec.  
+.PP
+The interface option controls which of the network interfaces is used when
+sending. It should be set to the primary multicast interface on a multi-homed
+host. Normally, it defaults to the interface corresponding to the primary
+host name.
+.PP
+The recvSize option sets the default size for incoming video windows. It can
+be set to half, normal, or double.
+.PP
+After the options, you can specify a destination address and port number. If
+neither is specified, a default address of 224.2.1.0 and port of 4444 is used.
+Specifying a unicast address allows for a point-to-point connection.  If a
+multicast group address is used, it is taken to be the address both to transmit
+to and listen for other transmitters on.
+.\"-------------
+.SH CONTROLS
+.I nv
+brings up a control panel when it is run which consists of two or three main
+regions, depending on whether a supported video capture board is available.
+The top region is a scrollable set of currently available network video
+sources \(em an icon sized video window with a name underneath. Clicking on
+the icon of the video will toggle the display of a larger video window for
+that source. The second region contains conference address info, as well as a
+place to set your name. Each of these fields may be editted \(em changes take
+affect when <Return> is pressed in a field. The third region appears only when
+a video capture board is found. It allows you to set the maximum transmit
+bandwidth for your video stream, control whether you're sending greyscale or
+color video, and toggle sending on and off. It also has a button to bring up a
+list of sites reporting in as viewing you.
+.PP
+Clicking in video windows will toggle an extra control panel which allows you
+to adjust the brightness and contrast of the image. It also displays the IP
+source address of the sender and the incoming frame rate and bandwidth
+(averaged over the last few seconds). Other controls include a set of size
+buttons, a switch to view the video as either greyscale or color (if color is
+being sent), and a button which allows you to capture the current image into a
+new window.
+.PP
+Any window may be deleted by using the "quit" option provided by the window
+maneger, or by pressing Ctrl-C, ESC, or 'q' in it. If you delete the control
+panel window in this fashion, the program will exit.
+.\"-------------
+.SH AUTHORS
+Primary author: Ron Frederick <frederick@parc.xerox.com>
+
+SGI Indigo video capture support provided by Andrew Cherenson <arc@sgi.com>.
+
+Sony NEWS video capture support provided by Tatsuo Nagamatsu
+<nagamatsu@sm.sony.co.jp>.
+
+DEC PIP and DEC JVideo capture support provided by Steve McCanne
+<mccanne@ee.lbl.gov>.
+.\"-------------
+.SH BUGS
+When you start nv on an Indigo with the IndigoVideo board, the following
+message may appear several times in the console window: "sv1LoadMap: bad
+sv1AddWork".  It's caused by an IndigoVideo driver bug and can be ignored.
+.LP
+Additional bug reports, or other comments and suggestions are always welcome
+via email.

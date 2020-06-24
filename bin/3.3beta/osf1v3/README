@@ -1,0 +1,22 @@
+This is the DEC Alpha binary distribution of the 'nv' network video tool.
+Enclosed is this README file, a man page, and two Alpha executables for OSF/1
+release 3.x. Both executables provide support for the DEC J300 Sound & Motion
+Video card. To grab from the J300, the binary named 'nv-mme' requires
+installation of the MME server and shared library. The binary named 'nv-jv2'
+requires installation of the 'jv2driver' program available via anonymous FTP
+from:
+
+	ftp://chocolate.pa.dec.com/mbone/j300.tar.Z
+
+The nv-mme binary should also be compatible with the FullVideo Supreme JPEG
+AV321 video card if you have the MME server and shared library installed.
+
+If you do not have a video grabber and wish to use nv simply to receive video
+or transmit via the X11 screen grabber, you should be able to do so using the
+nv-jv2 program without installing either mmeserver or jv2driver.
+
+'nv' is still very much a work in progress, but hopefully you will find the
+program adequate for basic unicast and multicast transmission of video across
+the Internet. Comments and suggestions, as well as bug reports, are extremely
+welcome! Please send any such comments via email to the author, Ron Frederick
+<frederick@parc.xerox.com>.

@@ -1,0 +1,53 @@
+v1.6 - Thu Dec  3 1992
+
+Added support for a larger window for PAL images, to capture the full sized
+image and do proper square pixel correction.
+
+Note: This change is incompatible with previous 'nv' programs. Sending and
+receiving NTSC images remains fully compatible, but senders of PAL images can
+now only be received with nv version 1.6.
+
+v1.5 - Thu Nov 19 1992
+
+Added support for capturing still images of a video window at the receiver. To
+capture, click with the third button in the active window. A new window will
+appear with the captured image. Clicking with the third button in the captured
+window deletes it.
+
+Fixed a bug related to checking for the -display command line argument.
+
+v1.4 - Wed Nov 18 1992
+
+Fixed a problem in the VideoPix initialization which caused color information
+to produce some weird patterns in the grabbed image.
+
+
+v1.3 - Tue Nov 17 1992
+
+Added command line versions of all the options you could set with X resources.
+
+Fixed the display checking code to allow for GrayScale in addition to
+PseudoColor displays.
+
+Attempted to bind to the multicast address explicitly, for hosts which have the
+patched version of netinet/in_pcb.c.
+
+
+v1.2 - Mon Nov 16 1992
+
+Added a "Show receivers" box to the transmit window, which brings up a list of
+all hosts that have identified themselves as watching your video stream. These
+identifications are sent back via unicast to the port that the video originates
+from.
+
+
+v1.1 - Sat Nov 14 1992
+
+Cleaned up a few minor cosmetic features, such as the error message that was
+printed on hosts that didn't have a Videopix card. Also, fixed a bug related to
+iconifying the video windows.
+
+
+v1.0 - Thu Nov 12 1992
+
+First public release.

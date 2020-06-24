@@ -1,0 +1,567 @@
+/*
+	Netvideo version 3.3
+	Written by Ron Frederick <frederick@parc.xerox.com>
+
+	XIL frame grab routines for the SunVideo ("rtvc") SBus card running
+	on SunOS 5.x (Solaris 2.x), hacked by <maslen@eng.sun.com> from
+	videopix_grab.c, q.v.
+
+	XIL CellB grab routines by Michael Speer <speer@eng.sun.com>.
+
+	To compile this you'll need the XIL header files (from the SUNWxilh
+	package in the developers kit), not just the XIL runtime packages
+	that are bundled with Solaris 2.x releases.
+*/
+
+/*
+ * Copyright (c) Sun Microsystems, Inc.  1992, 1993. All rights reserved.
+ *
+ * License is granted to copy, to use, and to make and to use derivative
+ * works for research and evaluation purposes, provided that Sun Microsystems is
+ * acknowledged in all documentation pertaining to any such copy or derivative
+ * work. Sun Microsystems grants no other licenses expressed or implied. The
+ * Sun Microsystems  trade name should not be used in any advertising without
+ * its written permission.
+ *
+ * SUN MICROSYSTEMS MERCHANTABILITY OF THIS SOFTWARE OR THE SUITABILITY OF
+ * THIS SOFTWARE FOR ANY PARTICULAR PURPOSE.  The software is provided "as is"
+ * without express or implied warranty of any kind.
+ *
+ * These notices must be retained in any copies of any part of this software.
+ */
+
+#ifdef SUNVIDEO
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/time.h>
+#include <xil/xil.h>
+#include <thread.h>
+#include "sized_types.h"
+#include "rtp.h"
+#include "vid_image.h"
+#include "vid_code.h"
+#include "sunvideo_grab.h"
+#include "cellb.h"
+#include "tcl.h"
+
+extern Tcl_Interp *interp;
+
+#define AVG_BYTES_PER_FRAME	8192	/* XXX: Should compute this! */
+
+static int xmit_size, xmit_color, shrink, old_format;
+static XilSystemState state;
+static XilImage raw_image=NULL, shrunken_image=NULL;
+static XilCis cis=NULL;
+static reconfigproc_t *reconfig=NULL;
+static int bandwidth;
+static int sv_stopped=0, sv_inited=0;
+static cond_t sv_cv;
+static mutex_t sv_mutex;
+static unsigned int g_width, g_height, g_nbands;
+static uint8 *g_ydata=NULL;
+static int8 *g_uvdata=NULL;
+
+/*
+ * In order to allow this source to work on machine which do not
+ * have the Solaris 2.3 Edition 4 or Solaris 2.4 or later versions
+ * of the software, we do not assume UYVY support.  Instead, we test
+ * for it and use it if it is there (cis != NULL)
+ */
+static Xil_boolean SunVideo_UYVY_ErrHandler(XilError error)
+{
+    /* if UYVY is not installed, we got the following four errors */
+    if (xil_error_get_primary(error)) {
+	if (xil_error_get_category(error) == XIL_ERROR_CONFIGURATION)
+		return TRUE;
+    } else {
+	char *id = xil_error_get_id(error);
+
+	if (!strcmp(id, "di-158") || !strcmp(id, "di-125") ||
+	    !strcmp(id, "di-282")) return TRUE;
+    }
+
+    return xil_call_next_error_handler(error);
+}
+
+static void SunVideo_UYVY_Init(void)
+{
+    /* In case we already have one, destroy it */
+    xil_cis_destroy(cis);
+
+    xil_install_error_handler(state, SunVideo_UYVY_ErrHandler);
+    cis = xil_cis_create(state, "UYVY");
+    xil_remove_error_handler(state, SunVideo_UYVY_ErrHandler);
+
+    if (cis != NULL) {
+	xil_cis_set_max_frames(cis, 1);
+	xil_cis_set_keep_frames(cis, 1);
+    }
+}
+
+static void SunVideo_Reconfig(void)
+{
+    unsigned int width, height, nbands;
+    XilDataType datatype;
+
+    switch (xmit_size) {
+    case VID_SMALL:
+	shrink = 4;
+	break;
+    case VID_MEDIUM:
+	shrink = 2;
+	break;
+    case VID_LARGE:
+	shrink = 1;
+	break;
+    }
+
+    xil_get_info(raw_image, &width, &height, &nbands, &datatype);
+
+    width = (width/shrink) & ~7;
+    height = (height/shrink) & ~7;
+    xil_destroy(shrunken_image);
+    shrunken_image = xil_create(state, width, height, nbands, datatype);
+
+    if (g_ydata != NULL) free(g_ydata);
+    if (g_uvdata != NULL) free(g_uvdata);
+
+    g_ydata = malloc(sizeof(uint8)*width*height);
+    g_uvdata = malloc(sizeof(int8)*width*height);
+
+    if (reconfig) (*reconfig)(xmit_color, width, height);
+}
+
+
+static void SunVideo_GrabUYVY(XilImage im, uint8 *y_data, int8 *uv_data)
+{
+    int i, nframes, nbytes;
+    unsigned width, height, nbands;
+    XilDataType datatype;
+    Xil_unsigned8 *xil_data;
+    uint32 *yp, *uvp, *w;
+
+    xil_get_info(im, &width, &height, &nbands, &datatype);
+
+    xil_compress(im, cis);
+    xil_cis_sync(cis);
+    xil_data = xil_cis_get_bits_ptr(cis, &nbytes, &nframes);
+
+    yp = (uint32 *) y_data;
+    uvp = (uint32 *) uv_data;
+    w = (uint32 *) xil_data;
+
+    for (i=0; i<height*width/4; i++) {
+	/*
+	 * Grab four pixels at a time, produce four bytes of Y,
+	 * Y, Y, Y and four bytes of U, V, U, V.
+	 */
+	uint32 w0, w1, t0, t1;
+
+	w0 = w[0];		/* u01 y0 v01 y1 */
+	w1 = w[1];		/* u23 y2 v23 y3 */
+	w += 2;
+
+	t0 = (w0 << 8);		/* y0 v01 xx   0 */
+	t1 = (w1 >> 8);		/* 0  xx y2 v23 */
+
+	/*
+	 * ====> Big-endian assumptions here...
+	 */
+	*yp++ = (t0 & 0xff000000) | ((w0 << 16) & 0xff0000) |
+		(t1 & 0xff00) | (w1 & 0xff);
+
+	*uvp++ = ((w0 & 0xff000000) | (t0 & 0xff0000) |
+		  ((w1 >> 16) & 0xff00) | (t1 & 0xff)) ^ 0x80808080;
+    }
+}
+
+static void SunVideo_GrabYUV(XilImage im, uint8 *y_data, int8 *uv_data)
+{
+    int	x, y;
+    XilDataType datatype;
+    XilMemoryStorage layout;
+    unsigned long scanline_stride;
+    unsigned int pixel_stride;
+    Xil_unsigned8 *xil_data;
+    uint32 *yp, *uvp, *w;
+
+    xil_get_info(im, &g_width, &g_height, &g_nbands, &datatype);
+    xil_export(im);
+    xil_get_memory_storage(im, &layout);
+    xil_data = layout.byte.data;
+    scanline_stride = layout.byte.scanline_stride;
+    pixel_stride = layout.byte.pixel_stride;
+
+    if (xmit_color && (pixel_stride == 3) &&
+	(((uint32) xil_data) % sizeof(uint32) == 0) &&
+	(scanline_stride % sizeof(uint32) == 0)) {
+
+	yp = (uint32 *) y_data;
+	uvp = (uint32 *) uv_data;
+
+	for (y=0; y<g_height; y++, xil_data += scanline_stride) {
+	    for (x=0, w=(uint32 *)xil_data; x<g_width; x += 4) {
+		/*
+		 * Grab four pixels at a time, produce four bytes of Y, Y, Y, Y
+		 *   and four bytes of U, V, U, V.
+		 * Note: the framegrabber gives us UV values for every Y value,
+		 *   whereas nv (sensibly) only wants UV values per two Y
+		 *   values.  For better or worse, we simply ignore one set of
+		 *   UV values rather than, say, averaging them.  We'd have to
+		 *   shift the UV values in pixels 0 and 2, whereas the UV
+		 *   values in pixels 1 and 3 are already aligned the way we
+		 *   want them, so we use the latter.
+		 */
+		uint32 w0, w1, w2;
+
+		w0 = w[0];	/* y0 u0 v0 y1 */
+		w1 = w[1];	/* u1 v1 y2 u2 */
+		w2 = w[2];	/* v2 y3 u3 v3 */
+
+		w += 3;
+
+		/*
+		 * ====> Big-endian assumptions here...
+		 */
+		*yp++ = (w0 & 0xff000000) | ((w0 << 16) & 0xff0000) |
+			(w1 & 0xff00) | ((w2 >> 16) & 0xff);
+
+		*uvp++ = ((w1 & 0xffff0000) | (w2 & 0xffff)) ^ 0x80808080;
+	    }
+	}
+
+    } else {
+	/*
+	 * Do everything a byte at a time instead of a word at a time;
+	 * more general but painfully slow.  If anyone cares about
+	 * greyscale performance, we should tune this.
+	 */
+
+	for (y=0; y<g_height; y++, xil_data += scanline_stride) {
+	    Xil_unsigned8 *p;
+
+	    for (x=0, p=xil_data; x<g_width; x += 2) {
+		/*
+		 * Note: the framegrabber gives us UV values for every Y value,
+		 *   whereas nv (sensibly) only wants UV values per two Y
+		 *   values.  For better or worse, we simply ignore one set of
+		 *   UV values rather than, say, averaging them.
+		 */
+		*y_data++ = p[0];
+		if (xmit_color) {
+		    *uv_data++ = p[1] - 0x80;
+		    *uv_data++ = p[2] - 0x80;
+		}
+		p += pixel_stride;
+
+		*y_data++ = p[0];
+		p += pixel_stride;
+	    }
+	}
+
+    }
+
+    xil_import(im, FALSE);
+}
+
+static void *SunVideo_GrabThread(void *arg)
+{
+    int port, max_buffers=1;
+    unsigned int width, height, nbands;
+    char *devtype="SUNWrtvc", *devname=NULL;
+    XilDataType datatype;
+
+    mutex_lock(&sv_mutex);
+
+    if ((state = xil_open()) == NULL) {
+	mutex_unlock(&sv_mutex);
+	return;
+    }
+
+    /*
+     * Should install an error handler to reformat the XIL error messages
+     * for consumption by humans, but for now...
+     */
+    raw_image = xil_create_from_device(state, devtype, devname);
+    if (raw_image == NULL) {
+	xil_close(state);
+	state = NULL;
+	mutex_unlock(&sv_mutex);
+	return;
+    }
+
+    xil_set_device_attribute(raw_image, "SYNC", (void *)0);
+    xil_set_device_attribute(raw_image, "IMAGE_SKIP", (void *)0);
+    xil_set_device_attribute(raw_image, "MAX_BUFFERS", (void *)max_buffers);
+
+    port = atoi(Tcl_GetVar(interp, "sunvidPort", TCL_GLOBAL_ONLY));
+    xil_set_device_attribute(raw_image, "PORT_V", (void *) port);
+
+    SunVideo_Reconfig();
+    SunVideo_UYVY_Init();
+
+    sv_inited++;
+    cond_broadcast(&sv_cv);
+    mutex_unlock(&sv_mutex);
+
+    for (;;) {
+    	xil_scale(raw_image, shrunken_image, "nearest", 1.0/(float)shrink,
+		  1.0/(float)shrink);
+
+	mutex_lock(&sv_mutex);
+	if (sv_stopped) break;
+
+    	if (xmit_color && (cis != NULL)) {
+	    SunVideo_GrabUYVY(shrunken_image, g_ydata, g_uvdata);
+    	} else {
+	    SunVideo_GrabYUV(shrunken_image, g_ydata, g_uvdata);
+    	}
+	mutex_unlock(&sv_mutex);
+
+    	xil_toss(shrunken_image);
+    }
+
+    xil_cis_destroy(cis);
+    xil_destroy(shrunken_image);
+    xil_destroy(raw_image);
+    xil_close(state);
+
+    state = NULL;
+    raw_image = shrunken_image = NULL;
+    cis = (XilCis)NULL;
+    mutex_unlock(&sv_mutex);
+}
+
+static int SunVideo_GrabFrame(uint8 *y_data, int8 *uv_data)
+{
+    mutex_lock(&sv_mutex);
+    memcpy(y_data, g_ydata, sizeof(uint8)*g_width*g_height);
+    if (xmit_color) memcpy(uv_data, g_uvdata, sizeof(int8)*g_width*g_height);
+    mutex_unlock(&sv_mutex);
+    return 1;
+}
+
+static int XilSetDeviceAttribute(ClientData clientData, Tcl_Interp *interp,
+				 int argc, char *argv[], void *third_arg)
+{
+    XilImage image;
+    int status;
+
+    if (argc != 4) {
+	Tcl_AppendResult(interp, "wrong # args: should be \"", argv[0],
+			 "image attribute value", NULL);
+	return TCL_ERROR;
+    }
+
+    if (strcmp(argv[1], "rtvc0") != 0) {
+	Tcl_AppendResult(interp, "first argument to ", argv[0],
+			 "must be \"rtvc0\" at present", NULL);
+	return TCL_ERROR;
+    }
+
+    if ((image = raw_image) == NULL) {
+	/*
+	 * Silently ignore the command;  this is what the code in
+	 * videopix_grab.c does, but is it right?
+	 */
+	return TCL_OK;
+    }
+
+    status = xil_set_device_attribute(image, argv[2], third_arg);
+    if (status == XIL_FAILURE) {
+	Tcl_AppendResult(interp, "XIL attempt to set ", argv[2],
+			 " attribute on ", argv[1], " failed", NULL);
+	return TCL_ERROR;
+    }
+
+    SunVideo_Reconfig();
+    return TCL_OK;
+}
+
+static int XilSetDeviceAttributeInt(ClientData clientData, Tcl_Interp *interp,
+				    int argc, char *argv[])
+{
+    int val;
+    char *endp;
+
+    if (argc >= 4) {
+	val = strtol(argv[3], &endp, 10);
+	if (*endp != '\0') {
+	    Tcl_AppendResult(interp, "third (last) argument to ",
+			     argv[0], " should be an integer", NULL);
+	    return TCL_ERROR;
+	}
+    }
+
+    /*
+     * Strange but true:  xil_set_device_attribute() really does pass
+     * integers in the (void *) pointer rather than in the memory pointed
+     * to by the (void *) pointer.
+     */
+    return XilSetDeviceAttribute(clientData, interp, argc, argv, (void *)val);
+}
+
+/* Unused at present */
+static int XilSetDeviceAttributeString(ClientData clientData,
+				       Tcl_Interp *interp, int argc,
+				       char *argv[])
+{
+    return XilSetDeviceAttribute(clientData, interp, argc, argv,
+				 (argc >= 4) ? argv[3] : 0);
+}
+
+int SunVideo_Probe(void)
+{
+    struct stat rtvcstat;
+
+    return (stat("/dev/rtvc0", &rtvcstat) < 0) ?
+		0 : VID_SMALL|VID_MEDIUM|VID_LARGE|VID_GREYSCALE|VID_COLOR;
+}
+
+char *SunVideo_Attach(void)
+{
+    Tcl_CreateCommand(interp, "xilSetDevAttrInt",
+		      XilSetDeviceAttributeInt, 0, NULL);
+    Tcl_CreateCommand(interp, "xilSetDevAttrString",
+		      XilSetDeviceAttributeString, 0, NULL);
+
+    return ".grabControls.sunvideo";
+}
+
+void SunVideo_Detach(void)
+{
+    Tcl_DeleteCommand(interp, "xilSetDevAttrInt");
+    Tcl_DeleteCommand(interp, "xilSetDevAttrString");
+}
+
+thread_t sv_thread_id;
+
+/*ARGSUSED*/
+grabproc_t *SunVideo_Start(int max_framerate, int config, reconfigproc_t *r)
+{
+    reconfig = r;
+    xmit_size = (config & VID_SIZEMASK);
+    xmit_color = (config & VID_COLOR);
+    sv_stopped = 0;
+    sv_inited = 0;
+
+    mutex_init(&sv_mutex, USYNC_PROCESS, NULL);
+    cond_init(&sv_cv, USYNC_PROCESS, NULL);
+
+    if (thr_create(NULL, 0, SunVideo_GrabThread, NULL,
+		   THR_NEW_LWP|THR_BOUND, &sv_thread_id)) {
+	fprintf(stderr, "Unable to start sunvideo.\n");
+	return (NULL);
+    }
+
+    mutex_lock(&sv_mutex);
+    while (!sv_inited) cond_wait(&sv_cv, &sv_mutex);
+    mutex_unlock(&sv_mutex);
+
+    return SunVideo_GrabFrame;
+}
+
+void SunVideo_Stop(void)
+{
+    mutex_lock(&sv_mutex);
+    sv_stopped++;
+    mutex_unlock(&sv_mutex);
+    thr_join(sv_thread_id, NULL, NULL);
+
+    reconfig = NULL;
+}
+
+
+/*
+ * Routines for CellB Hardware encode from SunVideo Card.
+ */
+int SunVideo_GrabCellB(uint8 **datap, int *lenp)
+{
+    int nframes, newskip;
+    static int skip=0, avgpos=0, avglen[8], totlen=0;
+
+    xil_scale(raw_image, shrunken_image, "nearest", 1.0/(float)shrink,
+	      1.0/(float)shrink);
+
+    xil_compress(shrunken_image, cis);
+    xil_cis_sync(cis);
+    xil_toss(shrunken_image);
+
+    if (!xil_cis_has_frame(cis)) return 0;
+
+    *datap = (uint8 *)xil_cis_get_bits_ptr(cis, lenp, &nframes);
+
+    totlen += *lenp-avglen[avgpos];
+    avglen[avgpos] = *lenp;
+    avgpos = (avgpos+1) % 8;
+
+    if (avgpos == 0) {
+	newskip = 30*totlen/8/(125*bandwidth)+1;
+	if (newskip < 0) newskip = 0;
+     
+	if (skip != newskip) {
+	    skip = newskip;
+	    xil_set_device_attribute(raw_image, "IMAGE_SKIP", (void *)skip);
+	}
+    }
+
+    return 1;
+}
+
+/*ARGSUSED*/
+int SunVideo_StartCellB(int max_bandwidth, int max_framerate, int config,
+			reconfigproc_t *r)
+{
+    int port;
+    char *devtype="SUNWrtvc", *devname=NULL;
+
+    reconfig = r;
+    xmit_size = (config & VID_SIZEMASK);
+    xmit_color = (config & VID_COLOR);
+
+    if ((state = xil_open()) == NULL) return 0;
+
+    /*
+     * Set up capture device.
+     */
+    raw_image = xil_create_from_device(state, devtype, devname);
+    if (raw_image == NULL) {
+	xil_close(state);
+	state = NULL;
+	return 0;
+    }
+
+    xil_set_device_attribute(raw_image, "SYNC", (void *)0);
+    xil_set_device_attribute(raw_image, "IMAGE_SKIP", (void *)0);
+
+    port = atoi(Tcl_GetVar(interp, "sunvidPort", TCL_GLOBAL_ONLY));
+    xil_set_device_attribute(raw_image, "PORT_V", (void *) port);
+
+    SunVideo_Reconfig();
+
+    /*
+     * Set up CellB compression.
+     */
+    cis = xil_cis_create(state, "CellB");
+    xil_cis_set_keep_frames(cis, 1);
+    xil_cis_set_max_frames(cis, 1);
+
+    bandwidth = max_bandwidth;
+    return 1;
+}
+
+void SunVideo_StopCellB(void)
+{
+    xil_cis_destroy(cis);
+    xil_destroy(shrunken_image);
+    xil_destroy(raw_image);
+    xil_close(state);
+
+    state = NULL;
+    raw_image = shrunken_image = NULL;
+    cis = (XilCis)NULL;
+    reconfig = NULL;
+}
+#endif /* SUNVIDEO */

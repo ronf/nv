@@ -1,0 +1,1 @@
+../src/vid_image.c

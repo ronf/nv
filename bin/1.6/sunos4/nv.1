@@ -1,0 +1,91 @@
+.TH NV 1  "12 Nov 1992"
+.SH NAME
+nv \- X11 videoconferencing tool
+.SH SYNOPSIS
+.na
+.B nv
+[ options ] [
+.I addr
+[
+.I port
+] ]
+.br
+.ad
+.SH DESCRIPTION
+.LP
+.I nv
+allows users to transmit and receive slow frame rate video via UDP/IP across
+an internet. Video streams can be either sent point to point, or sent to
+several destinations simultaneously using IP multicast. Receivers need no
+special hardware -- just an X display. Transmitters need a Sun VideoPix frame
+grabber.
+
+The video transmitted is a 320x240 image with 16 levels of greyscale. The
+frame rate varies based on system load, but tends to be between 3 and 5
+frames/second on a SPARCstation 2. The image is updated at varying resolutions
+based on the amount of motion and the bandwidth available. As the image
+motion slows down, high resolution data is sent to fill in lost detail.
+
+.SH OPTIONS
+.I nv
+allows you to specify various options either on the command line or using X
+resources. The list of options is as follows:
+.LP
+.RS
+.nf
+.ta \w'-maxBandwidth   'u +\w'nv.maxBandwidth:   'u
+.I "Option	X Resource	Default"
+-brightness	nv.brightness:	60
+-contrast	nv.contrast:	60
+-maxBandwidth	nv.maxBandwidth:	128
+-name	nv.name:	(no default)
+-ttl	nv.ttl:	32
+.fi
+.DT
+.RE
+
+All options can be abbreviated to their smallest unique susbet (generally a
+single letter). In addition to the above list, nv understands the standard
+X switch of "-display" to use something other than $DISPLAY.
+
+The brightness & contrast parameters range from 0 to 100. The maxBandwidth is
+specified in kbits/second. The TTL can range from 0 to 255.
+
+After the options, you can specify a destination address and port number. If
+neither is specified, a default address of 224.2.1.0 and port of 4444 is used.
+Specifying a unicast address allows for a point to point connection.  If a
+multicast group address is used, it is taken to be the address both to transmit
+to and listen for other transmitters on.
+
+.SH CONTROLS
+.I nv
+brings up a control panel when it is run which consists of two main regions.
+The top region is a list of currently available network video sources -- a list
+of names with a checkbox next to each. Clicking on a name will toggle whether
+the video from that source is being displayed.
+
+The bottom region of the window only appears when a VideoPix card is available
+for transmitting video. This window contains several controls that can be used
+to adjust the characteristics of the transmitted video. There are sliders to
+set the brightness & contrast of the image being sent out, and to put a limit
+on the maximum bandwidth which will be used. Also, the name sent along with the
+window and the TTL used in sending multicast packets can be changed. At the
+very bottom of the window is a button to toggle transmission on and off, and a
+button to show which other sites are presently receiving your video. A status
+display of the frame rate & bandwidth used (averaged over the last few seconds)
+is present as well.
+
+To exit the program, type Ctrl-C or 'q' in the control panel or any of the
+video windows.
+
+.SH AUTHOR
+Ron Frederick (frederick@parc.xerox.com)
+.SH BUGS
+.I nv
+presently doesn't deal properly with "delete window" requests from X. That will
+be handled correctly when the next version of the Tk toolkit is released. Also,
+iconifying video windows can cause some confusion. To close a video window,
+click on that name in the control panel.
+.LP
+Additional bug reports, or other comments and suggestions are always welcome
+via email.

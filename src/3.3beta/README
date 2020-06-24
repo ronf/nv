@@ -1,0 +1,18 @@
+This is the source distribution of the 'nv' network video tool. The actual
+sources can be found in the "src" subdirectory. The "cpv" directory contains
+binary versions of the ViewPoint CPV decoder which cannot be distributed in
+source form. The Makefile in the "src" directory will need to be customized
+to point at the right places for include files and libraries, and to select
+which grabbers to support.
+
+In order to actually build 'nv', you will need Tcl 7.3 and Tk 3.6 installed on
+the system. They can be picked up from the ftp site ftp.cs.berkeley.edu in the
+directory /ucb/tcl. To be able to compile a version of nv which can send video,
+you may need additional grabber specific libraries such as the VideoPix library
+on the SPARCstation or VL library on the SGI Indy.
+
+'nv' is still very much a work in progress, but hopefully you will find the
+program adequate for basic unicast and multicast transmission of video across
+the Internet. Comments and suggestions, as well as bug reports, are extremely
+welcome! Please send any such comments via email to the author, Ron Frederick
+<frederick@parc.xerox.com>.

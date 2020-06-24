@@ -1,0 +1,231 @@
+v3.3beta - Fri Jul 15 1994
+
+This release has several new features, but it remains completely upward and
+downward compatible with release 3.2's packet format, as long as you are
+sending nv format video.
+
+The internal interface to grabbers was restructured to allow a single nv
+binary to support more than one grabber type. Several new grabber modules were
+also added, including the Parallax XVideo and SunVideo boards on the Sun, a
+generic Video Library grabber on the SGI, the J300 board on the DEC Alpha, the
+RasterOps VideoLive board on the HP, and the IBM VCA board on the RS6000. In
+addition, a generic X11 screen grabber module was added that should work on all
+platforms.
+
+Decode support has been added for Sun CellB format video and the proprietary
+ViewPoint CPV video.
+
+Support for multiple encoders has been added, so nv can now transmit any of
+its original format, Sun CellB, or Cornell's CU-SeeMe video.
+
+Three different transmit sizes are now available, allowing quality to be traded
+off for frame rate. At the small size, much higher frame rates are possible at
+a given bandwidth. The large size is useful when sending very detailed images
+such as slides.
+
+Features specific to a particular grabber can now be controlled using a new
+grabber control panel which can be brought up in the main nv window. This
+allows nv to control things such as which video input to use.
+
+A new "Receive Defaults" panel now allows you to see and change the default
+settings for brightness, contrast, size, and color settings for new video
+sources which are received. These options can now also be set with command
+line switches and/or X defaults.
+
+Several major user interface changes were made in this release. A menu bar was
+added at the top to get at an info panel, select from the set of grabbers
+supported, select from the set of encodings supported, and add/remove subpanels
+in the main nv window.
+
+When colormap space isn't available in the default colormap, nv will now
+allocate a private map. It tries to some extent to reduce colormap flashing
+on systems which can only install a single map at a time, but some amount of
+that is unavoidable. For images to look correct on those systems, the mouse
+much be somewhere in one of the nv windows.
+
+Systems with multiple network interfaces should now be handled better even
+without the use of the "-interface" option.
+
+v3.2 - Wed May 26 1993
+
+Added color video support. This version will still receive nv 3.0 and 3.1 video
+in greyscale, and will be able to transmit video compatible with 3.0 and 3.1
+receivers when sending in greyscale. In order to decode a color stream (even
+to display it in greyscale), you will need nv 3.2.
+
+Additional buttons were added both to the send control panel and the receive
+control panel to select between greyscale & color video. On 8-bit displays,
+greyscale video will be of slightly higher resolution, because of the dithering
+required to display color. If a 24-bit visual is available, however, nv will
+try and take full advantage of it.
+
+The new nv command line switch "-title" now lets you set the title of the nv
+control panel window, so that you can distinguish multiple instances of nv
+running on the same machine.
+
+Also, the captured video windows have a small scrollable text area in which
+you can write a small note about the captured image.
+
+v3.1 - Wed Apr 21 1993
+
+Added support for decoding of CUSeeMe video, when it is run through an
+appropriate gateway to use the RTP header format.
+
+Also, fixed a bug in the display of 1-bit deep images at half or quarter size.
+
+v3.0 - Thu Mar 25 1993 -- NEW MAJOR RELEASE
+
+No significant changes were made between 3.0beta and this release. There were
+a few minor bug fixes, but mostly this should behave identically to the beta
+release.
+
+v3.0beta - Mon Mar 22 1993 -- Beta of new major release
+
+Once again, this version of nv changes the packet format in a pretty serious
+way. It is now using headers compatible with the draft RTP standard. The
+compression scheme used for the video has already changed a fair amount.
+While the notion of frame differencing & multiple resolutions for blocks is
+still present, the details of how those are achieved is different.
+
+On the user interface side, the control panel now includes icon-sized live
+video images of each source in addition to the name. Clicking on the icon will
+bring up the larger independent video window, with the pop-down control panel.
+
+This version has now been ported to a few more platforms. In addition to the
+SPARCstation and SGI Indigo, it now runs on the Sony NEWS workstation, and the
+DECstation 5000 with the PIP video capture card.
+
+Also, thanks to a switch to Tk 3.2, all nv windows now respond properly to
+delete window requests from the window manager.
+
+v2.7 - Thu Feb 18 1993
+
+Fixed a problem in setting the initial value of the multicast TTL.
+
+v2.6 - Wed Feb 17 1993
+
+Fixed an initialization bug which appeared when running nv on monochrome
+displays.
+
+v2.5 - Tue Feb 16 1993 -- FIRST SOURCE RELEASE
+
+Added support for SGI machines, including transmit support for the SGI Indigo
+with entry graphics and the starter video card. Thanks go to Andrew Cherenson
+at SGI for the video capture routine for that board and help in doing the port.
+
+Added a new panel for "Conference Info", so that both transmit capable and
+receive only versions of nv can see and modify the conference address info
+and their local name.
+
+Added a set of buttons to change the size of the incoming video windows. In
+addition to the previously supported size, you can now make the window either
+half or double that size.
+
+Added a "-interface" command line option and X resource for multi-homed hosts,
+to allow you to specify which interface to use when transmitting.
+
+Added support for the X app-defaults environment variables such as XAPPLRESDIR,
+XFILESEARCHPATH, and XUSERFILESEARCHPATH.
+
+Worked around a TK bug which caused bogus error messages to appear on the SGI
+and might have also been responsible for the "transparent window" effect seen
+on the Suns.
+
+v2.4 - Wed Feb  3 1993
+
+Restructured much of the nv internals in preparation for ports to other
+platforms. Changed the monochrome dither mask to show more grey levels.
+
+v2.3 - Fri Jan  8 1993
+
+Fixed a problem related to displaying video on monochrome displays.
+
+v2.2 - Fri Jan  8 1993
+
+Added address & port fields to the video transmit window.
+
+Moved brightness & contrast controls, and frame rate & bandwidth status
+displays to an optional panel in the receiver windows. Clicking any mouse
+button in the incoming video window will toggle the panel on and off.
+
+This new control panel also includes a "capture" button for grabbing still
+frames from an incoming video stream. To make the captured windows disappear,
+simply click in them.
+
+v2.1 - Mon Dec  7 1992
+
+Fixed a minor bug in the unicast video handling, and added support for locally
+looping packets to the sender on unicast streams, so that you can always see
+your own picture.
+
+Also, fixed a minor bug in the monochrome display support.
+
+v2.0 - Mon Dec  7 1992 -- NEW MAJOR RELEASE
+
+This version of 'nv' uses a completely different packet format from the
+previous versions of 'nv', and is not at all compatible with them, for sending
+or receiving. There's now a version number field in the header, so that any
+additional changes of this sort can be more properly guarded against, but in
+the current case, there will be some weird interactions if you try and
+intermix them. Please remove any old versions you have around.
+
+The changes for this version include support for the full 7-bit greyscale
+supplied by the VideoPix card, and a different strategy for sending low and
+medium resolution data which should improve the overall picture quality when
+motion occurs. Motion (or other large screen changes) will introduce blurring,
+but it should be less offensive than the graininess that was introduced in
+previous versions.
+
+v1.6 - Thu Dec  3 1992
+
+Added support for a larger window for PAL images, to capture the full sized
+image and do proper square pixel correction.
+
+Note: This change is incompatible with previous 'nv' programs. Sending and
+receiving NTSC images remains fully compatible, but senders of PAL images can
+now only be received with nv version 1.6.
+
+v1.5 - Thu Nov 19 1992
+
+Added support for capturing still images of a video window at the receiver. To
+capture, click with the third button in the active window. A new window will
+appear with the captured image. Clicking with the third button in the captured
+window deletes it.
+
+Fixed a bug related to checking for the -display command line argument.
+
+v1.4 - Wed Nov 18 1992
+
+Fixed a problem in the VideoPix initialization which caused color information
+to produce some weird patterns in the grabbed image.
+
+
+v1.3 - Tue Nov 17 1992
+
+Added command line versions of all the options you could set with X resources.
+
+Fixed the display checking code to allow for GrayScale in addition to
+PseudoColor displays.
+
+Attempted to bind to the multicast address explicitly, for hosts which have the
+patched version of netinet/in_pcb.c.
+
+
+v1.2 - Mon Nov 16 1992
+
+Added a "Show receivers" box to the transmit window, which brings up a list of
+all hosts that have identified themselves as watching your video stream. These
+identifications are sent back via unicast to the port that the video originates
+from.
+
+
+v1.1 - Sat Nov 14 1992
+
+Cleaned up a few minor cosmetic features, such as the error message that was
+printed on hosts that didn't have a Videopix card. Also, fixed a bug related to
+iconifying the video windows.
+
+
+v1.0 - Thu Nov 12 1992
+
+First public release.

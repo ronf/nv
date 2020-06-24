@@ -1,0 +1,122 @@
+The following is a rough draft of the "on the wire" NV packet format for NV
+version 2.x. This packet format will almost certainly change in the near
+future, to take advantage of the work on the RTP transport protocol. However,
+I have decided to post this for those interested in some of the details about
+how nv currently works.
+
+Comments and questions are welcome. Note that this document currently only
+covers the packet format, and not any information about how the encode routine
+decides which blocks to send. If there's interest, I can post something about
+that as a separate item.
+
+
+NV Packet format
+----------------
+Each NV data stream is identified strictly by the source IP address and UDP
+port number. Every source gets a transient UDP port to send from, so multiple
+sources from a single machine will be distinct. Each packet in a stream is
+designed to be idempotent, so packet ordering is not an issue. In truth, a
+seriously late packet could cause the display to be updated with old
+information, so some kind of timestamp or sequence number will need to be
+added, but for now packets can be decoded as they arrive.
+
+A packet consists of a series of blocks. Blocks are variable length, based on
+their type and possibly the data they contain. Every block begins with a 32-bit
+header, which is layed out as follows:
+
+       0                   1                   2                   3
+       0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+      | Ver |F|  Type |   X Location  |   Y Location  | Initial Pixel |
+      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+It begins with a protocol version identifier, which for this version of the
+protocol is equal to 2 (010). Next, a format bit specifies whether the stream
+is NTSC (0) or PAL (1). NTSC images are 320x240 in size, while PAL images are
+384x288 in size. Next are two 8-bit values specifying which portion of the
+image this block corresponds to. Blocks are numbers beginning at the upper
+left as (0,0) and are 8 pixels by 8 pixels in size. The lower right corner of
+an NTSC image is block (39,29), and the lower right corner of a PAL image is
+block (47,35). The last field in the header is a starting pixel value for the
+block, which will presently always be in the range 0-127.
+
+Data following the header will always be a multiple of 4 bytes in length, so
+that all block headers remain fullword aligned. All blocks involving actual
+video data provide 4 bits per pixel. To compute the value of the pixel, the
+4 bit value is used as an index into a difference table and that table entry
+is added to the value of the previous pixel. Arithmetic is done as unsigned
+and modulo 128. The difference table is as follows:
+
+    Packet data		Difference	    Packet data		Difference
+    -----------		----------	    -----------		----------
+	0000		     0			1000		    64
+	0001		     1			1001		    96
+	0010		     2			1010		   112
+	0011		     3			1011		   120
+	0100		     4			1100		   124
+	0101		     8			1101		   125
+	0110		    16			1110		   126
+	0111		    32			1111		   127
+
+Note that because of the modulo arithmetic, the table can be viewed as
+symmetric and providing all the same negative difference as it does positive
+ones.
+
+For pixel 0 in a block, the "previous pixel" is the initial pixel value found
+in the header. For pixels at the left edge of a block, the "previous pixel" is
+the pixel above it. For all remaining pixels, it is the pixel to the left.
+
+The type field can contain any of the following values:
+
+	0000	Name used to identify stream -- null terminated string follows
+	0001	Quarter resolution block -- 8 pixels (4 bytes) of data follow
+	0010	Half resolution block -- 16 pixels (8 bytes) of data follow
+	0011	Full resolution block -- 64 pixels (32 bytes) of data follow
+	0100	Frame end marker (for screen flushes) -- no other data
+
+	0101-1111 reserved (currently invalid)
+
+The name block consists of the 32-bit header with type set to 0000 followed
+by a C-style null terminated string of bytes. The name will be no longer than
+64 bytes in length, including the terminator. The X location, Y location, and
+initial pixel value should be ignored. Name data is padded such that its
+length, including the terminator, is a multiple of 4 bytes.
+
+Blocks containing video contain some or all of the pixels in the 8x8 block, in
+the following arrangements:
+
+R
+o					Column
+w   0  1  2  3  4  5  6  7     0  1  2  3  4  5  6  7    0  1  2  3  4  5  6  7
+  +----------------------------------------------------------------------------
+0 | I	     0		 1     0     1	      2	    3	 0  1  2  3  4  5  6  7
+1 |							 8  9 10 11 12 13 14 15
+2 |			       4     5	      6	    7	16 17 18 19 20 21 22 23
+3 | 2	     3		 4				24 25 26 27 28 29 30 31
+4 |							32 33 34 35 36 37 38 39
+5 |			       8     9	     10	   11	40 41 42 43 44 45 46 47
+6 |							48 49 50 51 52 53 54 55
+7 | 5	     6		 7    12    13	     14	   15	56 57 58 59 60 61 62 63
+
+       Low Resolution	       Medium Resolution	     High Resolution
+
+For the low & medium resolution streams, remaining pixels can be filled in by
+something like linear interpolation. Note that the "I" in low resolution means
+to use the initial pixel value found in the header. For the other streams, the
+initial pixel need not correspond to any actual pixel in the block, but it is
+typical for it to be the same as pixel 0 (meaning the first difference value
+is 0000).
+
+The frame end marker is mainly intended as a hint -- it identifies a good time
+to flush a set of changes to the receiver's on-screen window. Not all packets
+contain a frame-end, as a frame generally spans multiple packets. Flushing
+changes without seeing a frame end is acceptable, but even in the face of
+dropped packets, frame-ends should be frequent enough to make reasonable
+synchronization points.
+
+Since Suns typically don't compute UDP checksums, there's some chance that a
+router along a path might corrupt data in a packet in a way which doesn't get
+noticed until is delivered to the application. Receivers should be robust
+enough to notice invalid types, out of range X & Y ranges, or packets without
+enough data to match a block's supposed length. In this case, the packet (or
+all blocks from the point where the error is noticed) should be discarded.

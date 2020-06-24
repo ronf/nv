@@ -1,0 +1,338 @@
+/*
+	Netvideo version 3.3
+	Written by Ron Frederick <frederick@parc.xerox.com>
+
+	SGI Video Library (VL) frame grab routines
+
+	Derived from code written by Andrew Cherenson <arc@sgi.com>.
+*/
+
+#ifdef SGIVL
+#include <stdlib.h>
+#include <stdio.h>
+#include <vl/vl.h>
+#include <sys/cachectl.h>
+#include "sized_types.h"
+#include "vid_image.h"
+#include "vid_code.h"
+#include "sgivl_grab.h"
+
+#define EV1BUG
+
+static int xmit_size, xmit_color, width, height;
+static VLServer vlServer;
+static VLPath vlPath;
+static VLBuffer transferBuf;
+static VLNode src, drn;
+static const uint32 mask0=0xff000000, mask1=0xff0000, mask2=0xff,
+		    uvflip=0x80808080;
+
+static int SGIVL_GrabField(uint8 *y_data, int8 *uv_data)
+{
+    VLInfoPtr info;
+    VLEvent ev;
+    int w, h;
+    int wait;
+    uint32 *dataptr, *yptr, *uvptr, data, y, uv;
+
+    for (wait=0; wait < 10; wait++) {
+	info = vlGetLatestValid(vlServer, transferBuf);
+	if (info != NULL) break;
+	sginap(1);
+    }
+    if (info == NULL) return 0;
+
+    dataptr = (uint32 *) vlGetActiveRegion(vlServer, transferBuf, info);
+    if (dataptr == NULL) {
+        vlPerror("vlGetActiveRegion");
+        return 0;
+    }
+
+    yptr = (uint32 *) y_data;
+    uvptr = (uint32 *) uv_data;
+
+    if (xmit_color) {
+	for (h=0; h < height; h++) {
+	    for (w=0; w < width; w += 4) {
+		data = dataptr[0];
+		y = (data & mask1) << 8;
+
+		data = dataptr[1];
+		y += data & mask1;
+		uv = (data & mask0) + ((data << 8) & mask1);
+
+		data = dataptr[2];
+		y += (data & mask1) >> 8;
+
+		data = dataptr[3];
+		*yptr++ = y + ((data & mask1) >> 16);
+		*uvptr++ = (uv + (((data & mask0) +
+			           ((data << 8) & mask1)) >> 16)) ^ uvflip;
+
+		dataptr += 4;
+	    }
+	}
+    } else {
+	for (h=0; h < height; h++) {
+	    for (w=0; w < width; w += 4) {
+		data = dataptr[0];
+		y = (data & mask1) << 8;
+
+		data = dataptr[1];
+		y += data & mask1;
+
+		data = dataptr[2];
+		y += (data & mask1) >> 8;
+
+		data = dataptr[3];
+		*yptr++ = y + ((data & mask1) >> 16);
+
+		dataptr += 4;
+	    }
+	}
+    }
+
+    vlPutFree(vlServer, transferBuf);
+    return 1;
+}
+
+static int SGIVL_GrabFrame(uint8 *y_data, int8 *uv_data)
+{
+    VLInfoPtr info;
+    VLEvent ev;
+    int w, h;
+    int wait;
+    uint32 *dataptr, *yptr, *uvptr, data, y, uv;
+
+    for (wait=0; wait < 10; wait++) {
+	info = vlGetLatestValid(vlServer, transferBuf);
+	if (info != NULL) break;
+	sginap(1);
+    }
+    if (wait == 10) return 0;
+
+    dataptr = (uint32 *) vlGetActiveRegion(vlServer, transferBuf, info);
+    if (dataptr == NULL) {
+        vlPerror("vlGetActiveRegion");
+        return 0;
+    }
+
+    yptr = (uint32 *) y_data;
+    uvptr = (uint32 *) uv_data;
+
+    if (xmit_color) {
+	for (h=0; h < height; h++) {
+	    for (w=0; w < width; w += 4) {
+		data = dataptr[0];
+		y = ((data & mask1) << 8) + ((data & mask2) << 16);
+		uv = (data & mask0) + ((data << 8) & mask1);
+
+		data = dataptr[1];
+		*yptr++ = y + ((data & mask1) >> 8) + (data & mask2);
+		*uvptr++ = (uv + ((data & mask0) >> 16) +
+			    ((data >> 8) & mask2)) ^ uvflip;
+
+		dataptr += 2;
+	    }
+	}
+    } else {
+	for (h=0; h < height; h++) {
+	    for (w=0; w < width; w += 4) {
+		data = dataptr[0];
+		y = ((data & mask1) << 8) + ((data & mask2) << 16);
+
+		data = dataptr[1];
+		*yptr++ = y + ((data & mask1) >> 8) + (data & mask2);
+
+		dataptr += 2;
+	    }
+	}
+    }
+
+    vlPutFree(vlServer, transferBuf);
+    return 1;
+}
+
+int SGIVL_Probe(void)
+{
+    if ((vlServer = vlOpenVideo("")) == NULL) {
+	return 0;
+    } else {
+	vlCloseVideo(vlServer);
+	vlServer = NULL;
+	return VID_SMALL|VID_MEDIUM|VID_LARGE|VID_GREYSCALE|VID_COLOR;
+    }
+}
+ 
+char *SGIVL_Attach(void)
+{
+    return NULL;
+}
+ 
+void SGIVL_Detach(void)
+{
+}
+
+grabproc_t *SGIVL_Start(int max_framerate, int config, reconfigproc_t *reconfig)
+{
+    grabproc_t *grab;
+    VLControlValue val;
+#ifdef EV1BUG
+    VLDevList devlist;
+    VLDev devnum;
+    int gotEv1;
+#endif
+
+    xmit_size = (config & VID_SIZEMASK);
+    xmit_color = (config & VID_COLOR);
+
+    if (!(vlServer = vlOpenVideo(""))) {
+	vlPerror("open video");
+	goto failed;
+    }
+
+    src = vlGetNode(vlServer, VL_SRC, VL_VIDEO, VL_ANY);
+    drn = vlGetNode(vlServer, VL_DRN, VL_MEM, VL_ANY);
+
+    vlPath = vlCreatePath(vlServer, VL_ANY, src, drn);
+    if (vlPath < 0) {
+	vlPerror("create path");
+	goto failed;
+    }
+
+#ifdef EV1BUG
+    vlGetDeviceList(vlServer, &devlist);
+    devnum = vlGetDevice(vlServer, vlPath);
+    gotEv1 = !strcmp(devlist.devices[devnum].name, "ev1");
+#endif
+
+    if (vlSetupPaths(vlServer, (VLPathList)&vlPath, 1, VL_SHARE, VL_SHARE)<0) {
+	vlPerror("set up paths");
+	goto failed;
+    }
+
+    val.intVal = VL_PACKING_YVYU_422_8;
+    if (vlSetControl(vlServer, vlPath, drn, VL_PACKING, &val) < 0) {
+	    vlPerror("set control packing");
+	    goto failed;
+    }
+
+    if (max_framerate > 0) {
+	val.fractVal.numerator =  max_framerate;
+	val.fractVal.denominator = 1;
+	if (vlSetControl(vlServer, vlPath, drn, VL_RATE, &val) < 0) {
+	    vlPerror("set control rate");
+	    goto failed;
+	}
+    }
+
+    switch (xmit_size) {
+    case VID_SMALL:
+	val.fractVal.numerator =  1;
+	val.fractVal.denominator = 2;
+	if (vlSetControl(vlServer, vlPath, drn, VL_ZOOM, &val) < 0) {
+	    vlPerror("set control rate");
+	    goto failed;
+	}
+
+	val.intVal = VL_CAPTURE_EVEN_FIELDS;
+	if (vlSetControl(vlServer, vlPath, drn, VL_CAP_TYPE, &val) < 0) {
+	    vlPerror("set control rate");
+	    goto failed;
+	}
+
+	vlGetControl(vlServer, vlPath, drn, VL_SIZE, &val);
+	width = val.xyVal.x/2;
+	height = val.xyVal.y;
+#ifdef EV1BUG
+	if (gotEv1) height /= 2;
+#endif
+	grab = SGIVL_GrabField;
+	break;
+    case VID_MEDIUM:
+	val.fractVal.numerator =  1;
+	val.fractVal.denominator = 1;
+	if (vlSetControl(vlServer, vlPath, drn, VL_ZOOM, &val) < 0) {
+	    vlPerror("set control rate");
+	    goto failed;
+	}
+
+	val.intVal = VL_CAPTURE_EVEN_FIELDS;
+	if (vlSetControl(vlServer, vlPath, drn, VL_CAP_TYPE, &val) < 0) {
+	    vlPerror("set control rate");
+	    goto failed;
+	}
+
+	vlGetControl(vlServer, vlPath, drn, VL_SIZE, &val);
+	width = val.xyVal.x/2;
+	height = val.xyVal.y;
+#ifdef EV1BUG
+	if (gotEv1) height /= 2;
+#endif
+	grab = SGIVL_GrabField;
+	break;
+    case VID_LARGE:
+	val.fractVal.numerator =  1;
+	val.fractVal.denominator = 1;
+	if (vlSetControl(vlServer, vlPath, drn, VL_ZOOM, &val) < 0) {
+	    vlPerror("set control rate");
+	    goto failed;
+	}
+
+	val.intVal = VL_CAPTURE_INTERLEAVED;
+	if (vlSetControl(vlServer, vlPath, drn, VL_CAP_TYPE, &val) < 0) {
+	    vlPerror("set control rate");
+	    goto failed;
+	}
+
+	vlGetControl(vlServer, vlPath, drn, VL_SIZE, &val);
+	width = val.xyVal.x;
+	height = val.xyVal.y;
+	grab = SGIVL_GrabFrame;
+	break;
+    }
+
+    vlSelectEvents(vlServer, vlPath, VLTransferCompleteMask);
+
+    /* Create ring buffers to hold captured data of new size. */
+    transferBuf = vlCreateBuffer(vlServer, vlPath, drn, 2);
+    if (transferBuf == NULL) {
+	vlPerror("create Buffer");
+	goto failed;
+    }
+
+    /* Tell VL to use newly created ring buffer. */
+    if (vlRegisterBuffer(vlServer, vlPath, drn, transferBuf) < 0) {
+	vlPerror("Buffer Registration");
+	goto failed;
+    }
+
+    if (vlBeginTransfer(vlServer, vlPath, 0, NULL) < 0) {
+	vlPerror("begin transfer");
+	goto failed;
+    }
+
+    (*reconfig)(xmit_color, width, height);
+    return grab;
+
+failed:
+    if (vlServer != NULL) {
+	vlCloseVideo(vlServer);
+	vlServer = NULL;
+    }
+
+    return NULL;
+}
+
+void 
+SGIVL_Stop(void)
+{
+    vlEndTransfer(vlServer, vlPath);
+    vlDeregisterBuffer(vlServer, vlPath, drn, transferBuf);
+    vlDestroyPath(vlServer,vlPath);
+    vlDestroyBuffer(vlServer, transferBuf);
+    vlCloseVideo(vlServer);
+    vlServer = NULL;
+}
+
+#endif /* SGIVL */
