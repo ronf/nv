@@ -25,7 +25,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-main(int argc, char **argv)
+int main(int argc, char **argv)
 {
     int c, count=0;
 
