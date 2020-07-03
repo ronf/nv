@@ -21,10 +21,12 @@
  */
 
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <time.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -739,7 +741,7 @@ static void ProcessCtrlPacket(uint8 *packet, int len)
 		    p += itemlen;
 		}
 
-		align = ((int) p) & 3;
+		align = ((uintptr_t) p) & 3;
 		if (align > 0) {
 		    p += (4-align);
 		    chunklen -= (4-align);
