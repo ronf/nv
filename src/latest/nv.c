@@ -51,6 +51,9 @@
 #ifdef CPV_DECODE
 #include "cpv.h"
 #endif
+#ifdef MAC
+#include "mac_grab.h"
+#endif
 #ifdef PARCVID
 #include "parcvid_grab.h"
 #endif
@@ -126,6 +129,10 @@ static Tk_TimerToken send_timer;
 
 static char *grabpanel=NULL;
 static grabber_t *grabber, grabbers[] = {
+#ifdef MAC
+    { "Mac Video", "mac", Mac_Probe, Mac_Attach,
+      Mac_Detach, Mac_Start, Mac_Stop, 0 },
+#endif
 #ifdef PARCVID
     { "PARC Video", "parcvid", PARCVid_Probe, PARCVid_Attach,
       PARCVid_Detach, PARCVid_Start, PARCVid_Stop, 0 },

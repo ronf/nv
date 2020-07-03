@@ -85,9 +85,12 @@
 # Uncomment and edit these lines on a macOS system
 #
 INCS      = -I/usr/X11R6/include
-NVLIBS	  = -L/usr/local/lib -ltk4.0 -ltcl7.4 -L/usr/X11R6/lib -lXext -lX11 -lm
-CFLAGS    = -g3 -O2 $(INCS)
-GRAB_OBJS =
+NVLIBS    = -framework AVFoundation -framework CoreMedia \
+            -framework CoreVideo -framework Cocoa -lobjc \
+            -L/usr/local/lib -ltk4.0 -ltcl7.4 \
+            -L/usr/X11R6/lib -lXext -lX11 -lm
+CFLAGS    = -g3 -O2 -DMAC $(INCS)
+GRAB_OBJS = mac_grab.o
 
 OBJS = nv.o nv_init.o nv_decode.o nv_encode.o nv_transform.o \
        nvdct_transform.o cellb_decode.o cellb_encode.o cellb_tables.o \
