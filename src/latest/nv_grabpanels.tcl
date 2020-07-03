@@ -1,6 +1,34 @@
 #
 # nv_grabpanels.tcl - TK interface descriptions for video grabber controls
 #
+set macPort 0
+
+frame .grabControls.mac
+
+label .grabControls.mac.title -text "Mac Video controls"
+
+frame .grabControls.mac.radios
+
+frame .grabControls.mac.radios.port
+
+set idx 0
+foreach port $macPorts {
+    pack append .grabControls.mac.radios.port \
+	[radiobutton .grabControls.mac.radios.port.port$idx -text $port \
+	    -relief flat -variable macPort -value $idx \
+	    -anchor w] {top fill}
+    incr idx
+}
+
+pack append .grabControls.mac.radios \
+    [frame .grabControls.mac.radios.fill1] {left expand fill} \
+    .grabControls.mac.radios.port {left fill} \
+    [frame .grabControls.mac.radios.fill2] {left expand fill}
+
+pack append .grabControls.mac \
+    .grabControls.mac.title {top fill} \
+    .grabControls.mac.radios {top fill}
+
 set pvidPort 2
 
 frame .grabControls.parcvid
