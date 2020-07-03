@@ -41,6 +41,8 @@
 #define GREY_BITS	5
 #define GREY_LEVELS	(1 << (GREY_BITS))
 
+extern int displayMono;
+
 uint32 bg_color, bg_fill, black_pix, white_pix;
 uint8 y_dither8[256*16], yuv_dither8[65536*16];
 uint32 y_cmap[256], yuv_cmap[65536];
@@ -114,8 +116,9 @@ static void VidWidget_SetUpdateRoutine(vidwidget_t *vidPtr)
     vidimage_t *image=vidPtr->image;
     int color = (image->flags & VIDIMAGE_ISCOLOR) &&
 		(image->flags & VIDIMAGE_WANTCOLOR);
+    int depth = displayMono? 1 : screenDepth;
 
-    switch (screenDepth) {
+    switch (depth) {
     case 1:
 	if (LITTLEENDIAN) {
 	    vidPtr->update_rect = VidGrey_LSB1bit;
@@ -153,6 +156,7 @@ static void VidWidget_AllocXImage(vidwidget_t *vidPtr)
     Display *dpy=Tk_Display(vidPtr->tkwin);
     vidimage_t *image=vidPtr->image;
     int scalebits=vidPtr->scalebits, width, height;
+    int depth = displayMono? 1 : screenDepth;
 
     if (scalebits == -1) {
 	width = image->width*2;
@@ -163,7 +167,7 @@ static void VidWidget_AllocXImage(vidwidget_t *vidPtr)
     }
 
     Tk_GeometryRequest(vidPtr->tkwin, width, height);
-    vidPtr->ximage = VidUtil_AllocXImage(dpy, visual, screenDepth, width,
+    vidPtr->ximage = VidUtil_AllocXImage(dpy, visual, depth, width,
 					 height, True);
     VidWidget_UpdateRect(vidPtr, 0, 0, image->width, image->height);
 }
@@ -299,12 +303,12 @@ static void VidWidget_EventProc(ClientData vidwidget, XEvent *eventPtr)
 
 int VidWidget_Init(Display *dpy)
 {
-    int i, j, screen, r, g, b, r0, g0, b0, y, u, v, u0, v0;
+    int i, j, screen, depth, r, g, b, r0, g0, b0, y, u, v, u0, v0;
     uint8 *gd=grey_dither;
     uint32 basergb, rgb, *cd=color_dither;
     XVisualInfo visinfo;
     XColor color;
-    static u_long small_lut[128], red_lut[128], green_lut[128], blue_lut[128];
+    static uint32 small_lut[128], red_lut[128], green_lut[128], blue_lut[128];
     static uint8 grey_lut[2*GREY_LEVELS], color_lut[4096];
 
     screen = DefaultScreen(dpy);
@@ -342,15 +346,13 @@ int VidWidget_Init(Display *dpy)
 	colmap = XDefaultColormap(dpy, screen);
     }
 
-    switch (screenDepth) {
+    depth = displayMono? 1 : screenDepth;
+
+    switch (depth) {
     case 1:
 	black_pix = bg_color = BlackPixel(dpy, screen);
 	white_pix = WhitePixel(dpy, screen);
 	bg_fill = black_pix * 0xff;
-	if (LITTLEENDIAN) {
-	    black_pix <<= 7;
-	    white_pix <<= 7;
-	}
 	return 0;
     case 8:
 	for (i=1; i<=GREY_LEVELS; i++) {
@@ -501,7 +503,11 @@ void *VidWidget_Create(void *interp, char *name, int toplevel, void *parent,
 	    VidWidget_InstanceCmd, (ClientData) vidPtr, (void (*)()) NULL);
 
     Tk_SetWindowBackground(vidPtr->tkwin, bg_color);
-    vidPtr->gc = Tk_GetGC(vidPtr->tkwin, 0, &gcValues);
+    gcValues.function = GXcopy;
+    gcValues.foreground = white_pix;
+    gcValues.background = black_pix;
+    vidPtr->gc = Tk_GetGC(vidPtr->tkwin, GCFunction|GCForeground|GCBackground,
+			  &gcValues);
 
     vidPtr->maxwidth = maxwidth;
     vidPtr->maxheight = maxheight;

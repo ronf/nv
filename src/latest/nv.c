@@ -213,6 +213,7 @@ static source_t source[MAX_SOURCES];
 extern char TK_Init[], NV_Init[], NV_GrabPanels[];
 
 char *display=NULL;
+int displayMono=0;
 static int recvOnly=0;
 
 Tk_ArgvInfo dispArgTable[] = {
@@ -249,6 +250,8 @@ Tk_ArgvInfo argTable[] = {
 	"Default video receive to be greyscale"},
     {"-recvGrey", TK_ARGV_CONST_OPTION, "grey", "Nv.recvColor",
 	"Default video receive to be greyscale"},
+    {"-mono", TK_ARGV_CONSTANT, (char *) 1, (char *) &displayMono,
+	"Run in monochrome mode"},
     {"-recvOnly", TK_ARGV_CONSTANT, (char *) 1, (char *) &recvOnly,
 	"Don't try to initialize a frame grabber"},
     {"-recvSize", TK_ARGV_OPTION_VALUE, NULL, "Nv.recvSize",

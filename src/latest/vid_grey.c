@@ -36,7 +36,7 @@
 #include "vid_widget.h"
 
 extern uint8 y_dither8[256*16];
-extern uint32 black_pix, white_pix, y_cmap[256];
+extern uint32 y_cmap[256];
 
 static uint8 halftone[1024] =
     { 108, 217, 192,  15, 103,  65, 129,  17, 
@@ -175,7 +175,7 @@ void VidGrey_MSB1bit(vidwidget_t *vidPtr, int x, int y, int width, int height)
     int w, z, scalebits=vidPtr->scalebits, scaler=1<<scalebits;
     int imagewidth=vidPtr->image->width;
     int ximagewidth=vidPtr->ximage->image->bytes_per_line;
-    uint8 *yp, *xip, row, *h=halftone;
+    uint8 *yp, *xip, row, black_pix=0, white_pix=1, *h=halftone;
     uint8 *greymap=vidPtr->image->greymap;
  
     if (scalebits == -1) {
@@ -249,7 +249,7 @@ void VidGrey_LSB1bit(vidwidget_t *vidPtr, int x, int y, int width, int height)
     int w, z, scalebits=vidPtr->scalebits, scaler=1<<scalebits;
     int imagewidth=vidPtr->image->width;
     int ximagewidth=vidPtr->ximage->image->bytes_per_line;
-    uint8 *yp, *xip, row, *h=halftone;
+    uint8 *yp, *xip, row, black_pix=0, white_pix=128, *h=halftone;
     uint8 *greymap=vidPtr->image->greymap;
  
     if (scalebits == -1) {

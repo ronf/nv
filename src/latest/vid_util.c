@@ -102,6 +102,7 @@ ximage_t *VidUtil_AllocStdXImage(Display *dpy, Visual *vis, int depth,
 {
     ximage_t *ximage;
     int ximage_size, pad;
+    int format = (depth == 1)? XYBitmap : ZPixmap;
 
     ximage = (ximage_t *) malloc(sizeof(ximage_t));
     if (ximage == NULL) return NULL;
@@ -118,7 +119,7 @@ ximage_t *VidUtil_AllocStdXImage(Display *dpy, Visual *vis, int depth,
 	break;
     }
 	
-    ximage->image = XCreateImage(dpy, vis, depth, ZPixmap, 0, NULL, width,
+    ximage->image = XCreateImage(dpy, vis, depth, format, 0, NULL, width,
 				 height, pad, 0);
     ximage_size = ximage->image->bytes_per_line * ximage->image->height;
     ximage->image->data = (char *) malloc(ximage_size);
@@ -133,6 +134,7 @@ ximage_t *VidUtil_AllocXImage(Display *dpy, Visual *vis, int depth, int width,
 {
     ximage_t *ximage;
     int ximage_size, pad;
+    int format = (depth == 1)? XYBitmap : ZPixmap;
     Tk_ErrorHandler handler;
 
     ximage = (ximage_t *) malloc(sizeof(ximage_t));
@@ -145,7 +147,7 @@ ximage_t *VidUtil_AllocXImage(Display *dpy, Visual *vis, int depth, int width,
 	ximage->shminfo = shminfo =
 	    (XShmSegmentInfo *) malloc(sizeof(XShmSegmentInfo));
 
-	ximage->image = XShmCreateImage(dpy, vis, depth, ZPixmap, 0, shminfo,
+	ximage->image = XShmCreateImage(dpy, vis, depth, format, 0, shminfo,
 					width, height);
 	ximage_size = ximage->image->bytes_per_line * ximage->image->height;
 
@@ -187,7 +189,7 @@ ximage_t *VidUtil_AllocXImage(Display *dpy, Visual *vis, int depth, int width,
 	    break;
 	}
 	    
-	ximage->image = XCreateImage(dpy, vis, depth, ZPixmap, 0, NULL, width,
+	ximage->image = XCreateImage(dpy, vis, depth, format, 0, NULL, width,
 				     height, pad, 0);
 	ximage_size = ximage->image->bytes_per_line * ximage->image->height;
 	ximage->image->data = (char *) malloc(ximage_size);
