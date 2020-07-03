@@ -614,14 +614,14 @@ option add *highlightThickness			0		  startupFile
 option add *Button.padY				1		  startupFile
 option add *Menu.padY				2		  startupFile
 
-set nvBrightness	60
+set nvBrightness	50
 set nvConfInfo		true
 set nvContrast		50
 set nvEncoding		""
 set nvGrabber		""
 set nvGrabPanel		false
 set nvMaxBandwidth	128
-set nvMaxBWLimit	1024
+set nvMaxBWLimit	10240
 set nvMaxFrameRate	0
 set nvPort		4444
 set nvRecvColor		color
