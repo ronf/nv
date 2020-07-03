@@ -115,7 +115,7 @@ static Window VirtualRootWindow(Display *dpy, int screen)
     return vRoot;
 }
 
-static int X11Grab_ComputeYUVTable(void)
+static void X11Grab_ComputeYUVTable(void)
 {
     int i;
 
@@ -496,6 +496,83 @@ static int X11Grab_YUYVTrueXBGR24LSB(uint8 *grabdata)
     return 1;
 }
 
+static int X11Grab_GreyTrueXRGB24(uint8 *grabdata)
+{
+    int x, y;
+    uint8 *yp=grabdata, *ry=rgb2y;
+    uint32 *data=(uint32 *)ximage->image->data, p0, p1;
+
+    for (y=0; y<height; y++) {
+	for (x=0; x<width; x+=2) {
+	    p0 = data[0];
+	    p1 = data[1];
+	    data += 2;
+
+	    yp[0] = ry[((p0>>9) & 0x7c00)+((p0>>6) & 0x3e0)+((p0>>3) & 0x1f)];
+	    yp[1] = ry[((p1>>9) & 0x7c00)+((p1>>6) & 0x3e0)+((p1>>3) & 0x1f)];
+	    yp += 2;
+	}
+    }
+
+    return 1;
+}
+
+static int X11Grab_YUYVTrueXRGB24MSB(uint8 *grabdata)
+{
+    int x, y;
+    uint8 *ry=rgb2y;
+    uint32 *yuyvp=(uint32 *)grabdata, *ruv=rgb2uv, y0, y1, uv;
+    uint32 *data=(uint32 *)ximage->image->data, p0, p1;
+
+    for (y=0; y<height; y++) {
+	for (x=0; x<width; x+=2) {
+	    p0 = data[0];
+	    p1 = data[1];
+	    data += 2;
+
+	    y0 = ry[((p0>>9) & 0x7c00)+((p0>>6) & 0x3e0)+((p0>>3) & 0x1f)];
+	    y1 = ry[((p1>>9) & 0x7c00)+((p1>>6) & 0x3e0)+((p1>>3) & 0x1f)];
+
+	    p0 &= 0xfefeff;
+	    p1 &= 0xfefeff;
+	    p0 += p1;
+	    uv = ruv[((p0>>10)&0x7c00)+((p0>>7)&0x3e0)+((p0>>4)&0x1f)];
+
+	    *yuyvp++ = (y0 << 24) + (y1 << 8) + uv;
+	}
+    }
+
+    return 1;
+}
+
+static int X11Grab_YUYVTrueXRGB24LSB(uint8 *grabdata)
+{
+    int x, y;
+    uint8 *ry=rgb2y;
+    uint32 *yuyvp=(uint32 *)grabdata, *ruv=rgb2uv, y0, y1, uv;
+    uint32 *data=(uint32 *)ximage->image->data, p0, p1;
+
+    for (y=0; y<height; y++) {
+	for (x=0; x<width; x+=2) {
+	    p0 = data[0];
+	    p1 = data[1];
+	    data += 2;
+
+	    y0 = ry[((p0>>9) & 0x7c00)+((p0>>6) & 0x3e0)+((p0>>3) & 0x1f)];
+	    y1 = ry[((p1>>9) & 0x7c00)+((p1>>6) & 0x3e0)+((p1>>3) & 0x1f)];
+
+	    p0 &= 0xfefeff;
+	    p1 &= 0xfefeff;
+	    p0 += p1;
+	    uv = ruv[((p0>>10)&0x7c00)+((p0>>7)&0x3e0)+((p0>>4)&0x1f)];
+
+	    *yuyvp++ = y0 + (y1 << 16) + uv;
+	}
+    }
+
+    return 1;
+}
+
 static void X11Grab_SetGrabFunc(void)
 {
     switch (root_depth) {
@@ -548,6 +625,17 @@ static void X11Grab_SetGrabFunc(void)
 	    } else {
 		grab = xmit_color? X11Grab_YUYVTrueXBGR24MSB
 				 : X11Grab_GreyTrueXBGR24;
+	    }
+	} else if ((root_visinfo.class == TrueColor) &&
+		   (root_visinfo.red_mask == 0xff0000) &&
+		   (root_visinfo.green_mask = 0xff00) &&
+		   (root_visinfo.blue_mask == 0xff)) {
+	    if (LITTLEENDIAN) {
+		grab = xmit_color? X11Grab_YUYVTrueXRGB24LSB
+				 : X11Grab_GreyTrueXRGB24;
+	    } else {
+		grab = xmit_color? X11Grab_YUYVTrueXRGB24MSB
+				 : X11Grab_GreyTrueXRGB24;
 	    }
 	} else {
 	    grab = NULL;
@@ -603,9 +691,9 @@ static void X11Grab_Initialize(Window rw, int w, int h)
     }
 }
 
-static int X11Grab_MakeBox(unsigned int x1, unsigned int y1,
-			   unsigned int x2, unsigned int y2,
-			   int *xp, int *yp, int *wp, int *hp)
+static void X11Grab_MakeBox(unsigned int x1, unsigned int y1,
+			    unsigned int x2, unsigned int y2,
+			    int *xp, int *yp, int *wp, int *hp)
 {
     int w, h;
 
