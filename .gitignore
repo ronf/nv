@@ -1,0 +1,6 @@
+.*.swp
+*.o
+*.dSYM
+nv
+nv_init.c
+tcl2c
