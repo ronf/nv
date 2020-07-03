@@ -23,6 +23,7 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <sys/types.h>
 #include <netinet/in.h>
 #ifdef AIX
@@ -30,6 +31,7 @@
 #endif
 #include <sys/ipc.h>
 #include <X11/Xlib.h>
+#include <X11/Xutil.h>
 #include <tk.h>
 #ifndef NO_SHM
 #include <sys/shm.h>

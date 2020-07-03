@@ -21,13 +21,16 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/uio.h>
+#include <arpa/inet.h>
 #include <netinet/in.h>
 #ifdef AIX
 #include <net/nh.h>
@@ -707,7 +710,7 @@ static void ProcessCtrlPacket(uint8 *packet, int len)
 		    case RTCP_SDES_NAME:
 			namelen = (itemlen<MAX_NAMELEN-1) ? itemlen
 							  : MAX_NAMELEN-1;
-			strncpy(name, p, namelen);
+			strncpy(name, (const char *) p, namelen);
 			name[namelen] = '\0';
 
 			if (strcmp(source[i].name, name) != 0) {

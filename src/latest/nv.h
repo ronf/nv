@@ -50,3 +50,5 @@ extern int NV_Encode(void *enc_state, vidimage_t *image, uint8 *buf,
 extern void NV_Encode_Stop(void *enc_state);
  
 extern int NV_Decode(vidimage_t *image, uint8 *data, int len);
+
+extern uint32 RTPTime(void);

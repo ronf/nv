@@ -23,9 +23,15 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/types.h>
+#include <X11/Xlib.h>
+#include <tk.h>
 #include "sized_types.h"
 #include "vid_image.h"
+#include "vid_util.h"
+#include "vid_widget.h"
 
 extern int color_ok;
 

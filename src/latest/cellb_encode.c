@@ -24,6 +24,8 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/types.h>
 #include <sys/time.h>
 #include <netinet/in.h>
@@ -35,6 +37,7 @@
 #include "vid_util.h"
 #include "vid_image.h"
 #include "vid_code.h"
+#include "nv.h"
 #include "cellb.h"
 
 #define PACKETLEN	1024
