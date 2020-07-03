@@ -5,7 +5,7 @@
 set copy 0
 set screenDepth [winfo screendepth .]
 set source_list ""
-set version "4.0alpha"
+set version "4.0beta"
 
 proc max {args} {
     set m [lindex $args 0]

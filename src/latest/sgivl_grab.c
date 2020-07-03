@@ -1,6 +1,6 @@
 /*
-	Netvideo version 3.3
-	Written by Ron Frederick <frederick@parc.xerox.com>
+	Netvideo version 4.0
+	Written by Ron Frederick <ronf@timeheart.net>
 
 	SGI Video Library (VL) frame grab routines for Indy's built-in
 	VINO chip (IndyCam) and the optional EV1 (Galileo, IndyVideo and

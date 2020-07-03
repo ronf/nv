@@ -1,6 +1,6 @@
 /*
-	Netvideo version 3.3
-	Written by Ron Frederick <frederick@parc.xerox.com>
+	Netvideo version 4.0
+	Written by Ron Frederick <ronf@timeheart.net>
 
 	XIL Frame grab routines for SunVideo (a.k.a., rtvc) Sbus card
 	running on Solaris 2.3 or better, hacked by Michael Speer

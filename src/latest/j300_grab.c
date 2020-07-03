@@ -1,6 +1,6 @@
 /*
- *	Netvideo version 3.3
- *	Written by Ron Frederick <frederick@parc.xerox.com>
+ *	Netvideo version 4.0
+ *	Written by Ron Frederick <ronf@timeheart.net>
  *
  *	Frame grabber for DEC Sound and Motion J300 TurboChannel card
  *	using either Multimedia Services for DEC OSF/1 AXP or 

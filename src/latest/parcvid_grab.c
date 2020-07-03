@@ -1,6 +1,6 @@
 /*
-	Netvideo version 3.3
-	Written by Ron Frederick <frederick@parc.xerox.com>
+	Netvideo version 4.0
+	Written by Ron Frederick <ronf@timeheart.net>
 
 	PARC video frame grab routines
 */

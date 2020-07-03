@@ -1,6 +1,6 @@
 /*
-	Netvideo version 3.3
-	Written by Ron Frederick <frederick@parc.xerox.com>
+	Netvideo version 4.0
+	Written by Ron Frederick <ronf@timeheart.net>
 
 	IndigoVideo frame grab routines for the Silicon Graphics IRIS Indigo
 	with Entry graphics.

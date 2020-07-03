@@ -1,6 +1,6 @@
 /*
-	Netvideo version 3.3
-	Written by Ron Frederick <frederick@parc.xerox.com>
+	Netvideo version 4.0
+	Written by Ron Frederick <ronf@timeheart.net>
 
 	Sun CellB decode routine
 	Based heavily on code by Michael Speer <Michael.Speer@eng.sun.com>
