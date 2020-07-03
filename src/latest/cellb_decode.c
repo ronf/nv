@@ -65,7 +65,7 @@ int CellB_Decode(vidimage_t *image, uint8 *data, int len)
     height /= 4;
 
     /* If cellx or celly are out of range, exit */
-    if ((cellx >= width) || (celly >= height)) return;
+    if ((cellx >= width) || (celly >= height)) return 1;
 
     yorigin  = (uint32 *) image->y_data;
     uvorigin = (uint32 *) image->uv_data;
