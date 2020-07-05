@@ -12,12 +12,14 @@ frame .grabControls.mac.radios
 frame .grabControls.mac.radios.port
 
 set idx 0
-foreach port $macPorts {
-    pack append .grabControls.mac.radios.port \
-	[radiobutton .grabControls.mac.radios.port.port$idx -text $port \
-	    -relief flat -variable macPort -value $idx \
-	    -anchor w] {top fill}
-    incr idx
+if {[info exists macPorts]} {
+    foreach port $macPorts {
+	pack append .grabControls.mac.radios.port \
+	    [radiobutton .grabControls.mac.radios.port.port$idx -text $port \
+		-relief flat -variable macPort -value $idx \
+		-anchor w] {top fill}
+	incr idx
+    }
 }
 
 pack append .grabControls.mac.radios \
