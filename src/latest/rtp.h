@@ -28,9 +28,12 @@
 
 #define RTCP_CNTSHIFT	8
 
+#define RTCP_LOSS_FRACSHIFT	24
+#define RTCP_LOSS_CNTMASK	0x00ffffff
+
 /* Basic RTP header */
 typedef struct {
-    uint16	flags;		/* T:2 P:1 X:1 CC:4 M:1 PT:7 */
+    uint16	flags;		/* V:2 P:1 X:1 CC:4 M:1 PT:7 */
     uint16	seq;		/* sequence number */
     uint32	ts;		/* time stamp */
     uint32	ssrc;		/* synchronization src */
@@ -44,14 +47,13 @@ typedef struct {
 
 /* Basic RTCP header */
 typedef struct {
-    uint16	flags;		/* T:2 P:1 CNT:5 PT:8 */
+    uint16	flags;		/* V:2 P:1 CNT:5 PT:8 */
     uint16	len;		/* length */
 } rtcphdr_t;
 
 /* RTCP SR header */
 typedef struct {
-    rtcphdr_t	h;		/* common header */
-    uint32	ssrc;		/* synchronization src */
+    uint32	ssrc;		/* sender's synchronization src */
     uint32	ntp_hi;		/* NTP timestamp, high word */
     uint32	ntp_lo;		/* NTP timestamp, low word */
     uint32	rtp_ts;		/* RTP timestamp */
@@ -59,21 +61,20 @@ typedef struct {
     uint32	bytes;		/* bytes sent */
 } rtcp_sr_t;
 
+/* RTCP RR header */
+typedef struct {
+    uint32	ssrc;		/* receiver's synchronization src */
+} rtcp_rr_t;
+
 /* RTCP RR item */
 typedef struct {
-    uint32	ssrc;		/* syncrhronization src */
-    uint32	received;	/* packets received */
-    uint32	expected;	/* pakcets expected */
+    uint32	ssrc;		/* sender's syncrhronization src */
+    uint32	loss;		/* fraction lost:8, total packets lost:24 */
+    uint32	extseq;		/* extended highest sequence received */
     uint32	jitter;		/* interarrival jitter */
     uint32	lsr;		/* timestamp of last SR received */
     uint32	dlsr;		/* time since last SR received */
 } rtcp_rritem_t;
-
-/* RTCP RR header */
-typedef struct {
-    rtcphdr_t	h;		/* common header */
-    uint32	ssrc;		/* synchronization src */
-} rtcp_rr_t;
 
 /* RTP standard payload types for audio */
 #define RTP_PT_PCMU		0	/* 8kHz PCM mu-law mono */
@@ -95,17 +96,21 @@ typedef struct {
 #define RTP_PT_H261		31	/* CCITT H.261 */
 
 /* RTCP payload types */
-#define RTCP_PT_SR		1	/* Sender Report */
-#define RTCP_PT_RR		2	/* Reception Report */
-#define RTCP_PT_SDES		3	/* Source Description */
-#define RTCP_PT_BYE		4	/* Client shutdown */
+#define RTCP_PT_SR		200	/* Sender Report */
+#define RTCP_PT_RR		201	/* Reception Report */
+#define RTCP_PT_SDES		202	/* Source Description */
+#define RTCP_PT_BYE		203	/* Goodbye notification */
+#define RTCP_PT_APP		204	/* Application-defined */
 
 /* SDES types */
-#define RTCP_SDES_END		0	/* Canonical name */
+#define RTCP_SDES_END		0	/* End of SDES */
 #define RTCP_SDES_CNAME		1	/* Canonical name */
 #define RTCP_SDES_NAME		2	/* User specified name */
 #define RTCP_SDES_EMAIL		3	/* EMail address */
-#define RTCP_SDES_LOC		4	/* Location */
-#define RTCP_SDES_TXT		5	/* User specified text */
+#define RTCP_SDES_PHONE		4	/* Phone number */
+#define RTCP_SDES_LOC		5	/* Geographic location */
+#define RTCP_SDES_TOOL		6	/* Application or tool name */
+#define RTCP_SDES_NOTE		7	/* Notice or status */
+#define RTCP_SDES_PRIV		8	/* Private SDES extensions */
 
 #endif /*_rtp_h*/

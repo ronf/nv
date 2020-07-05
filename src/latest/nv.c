@@ -26,7 +26,6 @@
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <time.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -106,6 +105,7 @@
 
 #define MAX_FLUSH_TIME	1	/* sec */
 #define MAX_IDLE_TIME	15	/* sec */
+#define REPORT_TIME	5	/* sec */
 
 extern char *inet_ntoa();
 
@@ -124,9 +124,11 @@ static struct sockaddr_in lcladdr, rmtaddr, ctladdr;
 static uint8 ttl;
 static uint8 *curr_y_data;
 static int8 *curr_uv_data;
-static char myname[MAX_NAMELEN], address[32];
+static char mycname[MAX_NAMELEN], myname[MAX_NAMELEN], address[32];
 static uint16 port;
 static uint32 myssrc; /* in network byte order */
+static uint32 rtp_ts_offset;
+static uint32 last_report;
 static Tk_TimerToken send_timer;
 
 static char *grabpanel=NULL;
@@ -200,16 +202,19 @@ static char *rtp_payload_name[] =
 
 typedef struct {
     uint32		ssrc;
+    char		cname[MAX_NAMELEN];
     char		name[MAX_NAMELEN];
     uint8		pt;
     uint8		inuse;
     uint8		active;
     uint8		flushed;
+    struct timeval	last_sr_arrival;
     struct timeval	lastrecv;
     uint32		lastflush;
     uint32		laststamp;
     vidimage_t		*image;
-    uint32		pkts_expected, pkts_rcvd, last_sr, last_srtime;
+    uint32		pkts_expected, pkts_rcvd, last_expected, last_rcvd;
+    uint32		extseq, last_sr_ntp, last_sr_rtp, last_transit, jitter;
     uint16		startseq[8], maxseq[8];
     uint32		pkts[8], frames[8], shownframes[8], time[8], bytes[8];
     uint32		totseq, totpkts, totframes, totshown, tottime, totbytes;
@@ -292,12 +297,27 @@ static void Cleanup()
     /*NOTREACHED*/
 }
 
+uint32 CompactNTPTime(uint32 hi, uint32 lo)
+{
+    return (hi << 16) | (lo >> 16);
+}
+
+uint32 NTPTime(struct timeval *t, uint32 *hi, uint32 *lo)
+{
+    *hi = t->tv_sec + RTP_EPOCH_OFFSET;
+    *lo = ((t->tv_usec << 10) / 15625) << 16;
+
+    return CompactNTPTime(*hi, *lo);
+}
+
 uint32 RTPTime(void)
 {
     struct timeval t;
+    uint32 hi, lo;
 
     gettimeofday(&t, NULL);
-    return ((t.tv_sec + RTP_EPOCH_OFFSET) << 16) | ((t.tv_usec << 10) / 15625);
+
+    return rtp_ts_offset + NTPTime(&t, &hi, &lo);
 }
 
 static int FindSource(uint32 ssrc, int create)
@@ -455,7 +475,8 @@ void RecvVideoData(uint8 *packet, int len)
     uint8 pt, *data;
     struct timeval t;
     int16 seqdiff;
-    int32 tsdiff, tdiff;
+    int32 tsdiff, tdiff, delta;
+    uint32 ntp_hi, ntp_lo, ntp_ts, transit;
     char pathname[32], cmd[256];
     decodeproc_t *decode;
  
@@ -530,7 +551,7 @@ void RecvVideoData(uint8 *packet, int len)
 	(void) VidWidget_Create(interp, pathname, False, (void *) tkMainWin,
 				source[i].image, MAX_ICON_WIDTH,
 				MAX_ICON_HEIGHT);
-	sprintf(cmd, "addSource %d \"%d (%s)\" %d", i, rtp->ssrc,
+	sprintf(cmd, "addSource %d \"%08x (%s)\" %d", i, rtp->ssrc,
 		rtp_payload_name[pt], color_ok);
 	(void) Tcl_Eval(interp, cmd);
     } else if (source[i].pt != pt) {
@@ -539,7 +560,7 @@ void RecvVideoData(uint8 *packet, int len)
 	if (color != iscolor)
 	    VidImage_SetColor(source[i].image, color,
 			      source[i].image->flags & VIDIMAGE_WANTCOLOR);
-	sprintf(cmd, "setSourceInfo %d \"%d (%s)\"", i, rtp->ssrc,
+	sprintf(cmd, "setSourceInfo %d \"%08x (%s)\"", i, rtp->ssrc,
 		rtp_payload_name[pt]);
 	(void) Tcl_Eval(interp, cmd);
     }
@@ -553,6 +574,12 @@ void RecvVideoData(uint8 *packet, int len)
     tdiff = (t.tv_sec-source[i].lastrecv.tv_sec)*1000000 +
 	t.tv_usec-source[i].lastrecv.tv_usec;
     source[i].lastrecv = t;
+
+    ntp_ts = NTPTime(&t, &ntp_hi, &ntp_lo);
+    transit = ntp_ts-rtp->ts;
+    delta = transit-source[i].last_transit;
+    source[i].last_transit = transit;
+    source[i].jitter += abs(delta)-((source[i].jitter+8) >> 4);
 
     tsdiff = rtp->ts - source[i].laststamp;
     if (tsdiff < 0) {
@@ -586,6 +613,7 @@ void RecvVideoData(uint8 *packet, int len)
     avgpos = source[i].avgpos;
     seqdiff = rtp->seq - source[i].startseq[avgpos];
     if ((seqdiff > MAX_LOSS) || (seqdiff < -MAX_LOSS)) {
+	source[i].extseq = rtp->seq-1;
 	source[i].startseq[avgpos] = rtp->seq;
 	source[i].maxseq[avgpos] = rtp->seq-1;
 	source[i].pkts[avgpos] = 0;
@@ -594,6 +622,7 @@ void RecvVideoData(uint8 *packet, int len)
     if (seqdiff >= 0) source[i].pkts[avgpos]++;
     if ((seqdiff = (int16) (rtp->seq - source[i].maxseq[avgpos])) > 0) {
 	source[i].pkts_expected += seqdiff;
+	source[i].extseq += seqdiff;
 	source[i].maxseq[avgpos] = rtp->seq;
     }
     source[i].frames[avgpos] += newframe;
@@ -666,13 +695,18 @@ static void RecvVideoPackets(ClientData clientData, int mask)
 static void ProcessCtrlPacket(uint8 *packet, int len)
 {
     int i, j, count, sdestype, itemlen, chunklen, namelen, align;
+    uint32 ntp_hi, ntp_lo, ntp_ts, loss, extseq, jitter, lsr, dlsr;
     uint8 pt, *p;
     uint32 *ssrcp;
     rtcphdr_t *rtcp;
     rtcp_sr_t *sr;
     rtcp_rr_t *rr;
     rtcp_rritem_t *rritem;
+    struct timeval t;
     char cmd[256], name[MAX_NAMELEN];
+
+    gettimeofday(&t, NULL);
+    ntp_ts = NTPTime(&t, &ntp_hi, &ntp_lo);
 
     while (len > 0) {
 	rtcp = (rtcphdr_t *) packet;
@@ -690,20 +724,45 @@ static void ProcessCtrlPacket(uint8 *packet, int len)
 	case RTCP_PT_SR:
 	    sr = (rtcp_sr_t *) packet;
 	    i = FindSource(sr->ssrc, 1);
-	    count = (rtcp->flags & RTCP_CNTMASK) >> RTCP_CNTSHIFT;
+	    ntp_hi = ntohl(sr->ntp_hi);
+	    ntp_lo = ntohl(sr->ntp_lo);
+	    source[i].last_sr_arrival = t;
+	    source[i].last_sr_ntp = CompactNTPTime(ntp_hi, ntp_lo);
+	    source[i].last_sr_rtp = ntohl(sr->rtp_ts);
+	    /*printf("SR rcvd: ntp=%08x.%08x rtp=%08x pkts=%d bytes=%d\n",
+		   ntp_hi, ntp_lo, source[i].last_sr_rtp, ntohl(sr->pkts),
+		   ntohl(sr->bytes));*/
+
 	    rritem = (rtcp_rritem_t *)(sr+1);
 	    goto process_rrlist;
 	case RTCP_PT_RR:
 	    rr = (rtcp_rr_t *) packet;
-	    i = FindSource(rr->ssrc, 1);
-	    count = (rtcp->flags & RTCP_CNTMASK) >> RTCP_CNTSHIFT;
 	    rritem = (rtcp_rritem_t *)(rr+1);
 	process_rrlist:
+	    count = (rtcp->flags & RTCP_CNTMASK) >> RTCP_CNTSHIFT;
+
+	    for (i=0; i < count; i++) {
+		if (rritem[i].ssrc == myssrc) {
+		    loss = ntohl(rritem[i].loss);
+		    extseq = ntohl(rritem[i].extseq);
+		    jitter = ntohl(rritem[i].jitter);
+		    lsr = ntohl(rritem[i].lsr);
+		    dlsr = ntohl(rritem[i].dlsr);
+
+		    /*printf("RR rcvd: frac=%.2f%% lost=%d extseq=0x%08x "
+			   "jitter=%d lsr=%08x dlsr=%.2f sec rtt=%.2f msec\n",
+			   100 * (loss >> RTCP_LOSS_FRACSHIFT) / 256.,
+			   loss &  RTCP_LOSS_CNTMASK, extseq, jitter,
+			   lsr, dlsr/65536., (ntp_ts-lsr-dlsr)/65.536);*/
+		    break;
+		}
+	    }
 	    break;
 	case RTCP_PT_SDES:
 	    count = (rtcp->flags & RTCP_CNTMASK) >> RTCP_CNTSHIFT;
 	    p = packet;
 	    chunklen = rtcp->len*4;
+
 	    while ((count-- > 0) && (chunklen > 0)) {
 		ssrcp = (uint32 *) p;
 		i = FindSource(*ssrcp, 1);
@@ -713,12 +772,15 @@ static void ProcessCtrlPacket(uint8 *packet, int len)
 		while ((sdestype = p[0]) != RTCP_SDES_END) {
 		    itemlen = p[1];
 		    p += 2;
-		    chunklen -= (itemlen+2);
-		    if (chunklen < 0) break;
+		    chunklen -= 2;
+		    if (chunklen < itemlen) return;
 
 		    switch (sdestype) {
 		    case RTCP_SDES_CNAME:
-			break;
+			namelen = (itemlen<MAX_NAMELEN-1) ? itemlen
+							  : MAX_NAMELEN-1;
+			strncpy(source[i].cname, (const char *) p, namelen);
+			source[i].cname[namelen] = '\0';
 		    case RTCP_SDES_NAME:
 			namelen = (itemlen<MAX_NAMELEN-1) ? itemlen
 							  : MAX_NAMELEN-1;
@@ -739,18 +801,20 @@ static void ProcessCtrlPacket(uint8 *packet, int len)
 		    }
 
 		    p += itemlen;
+		    chunklen -= itemlen;
 		}
 
 		align = ((uintptr_t) p) & 3;
 		if (align > 0) {
-		    p += (4-align);
-		    chunklen -= (4-align);
+		    p += 4-align;
+		    chunklen -= 4-align;
 		}
 	    }
 	    break;
 	case RTCP_PT_BYE:
 	    count = (rtcp->flags & RTCP_CNTMASK) >> RTCP_CNTSHIFT;
-	    ssrcp = (uint32 *) packet;
+	    ssrcp = (uint32 *)(rtcp+1);
+
 	    for (j=0; j<count; j++) {
 		if ((i = FindSource(*ssrcp++, 0)) >= 0) {
 		    source[i].inuse = 0;
@@ -837,24 +901,123 @@ static void SendVideo(void)
     }
 }
 
+static uint8 *AddSDESItem(uint8 *p, uint8 sdestype, char *value, uint8 len)
+{
+    p[0] = sdestype;
+    p[1] = len;
+    memcpy(p+2, value, len);
+
+    return p+2+len;
+}
+
 static void SendReport(void)
 {
-    struct {
-	rtcphdr_t	h;
-	uint32		ssrc;
-	uint8		sdestype;
-	uint8		sdeslen;
-	char		name[MAX_NAMELEN];
-    } namepkt;
+    int i, align, rrcount=0;
+    int32 tdiff;
+    uint8 pt, *p, *start;
+    uint32 ntp_hi, ntp_lo, ntp_ts, lossfrac, losscount, jitter, lsr, dlsr;
+    uint32 rcvd, expected, *ssrcp;
+    struct timeval t;
+    rtcp_sr_t *sr;
+    rtcp_rr_t *rr;
+    rtcp_rritem_t *rritem;
+    rtcphdr_t *rtcp;
+    static uint32 packet[NV_PACKLEN/4];
 
-    namepkt.h.flags = RTP_V2 | (1 << RTCP_CNTSHIFT) | RTCP_PT_SDES;
-    namepkt.h.len = (6+strlen(myname))/4+1;
-    namepkt.ssrc = myssrc;
-    namepkt.sdestype = RTCP_SDES_NAME;
-    namepkt.sdeslen = strlen(myname);
-    strcpy(namepkt.name, myname);
+    gettimeofday(&t, NULL);
+    last_report = t.tv_sec;
+    ntp_ts = NTPTime(&t, &ntp_hi, &ntp_lo);
 
-    (void) sendto(xmitfd, (char *)&namepkt, sizeof(namepkt), 0,
+    start = (uint8 *) packet;
+    rtcp = (rtcphdr_t *) start;
+
+    if (enc_state != NULL) {
+	pt = RTCP_PT_SR;
+
+	sr = (rtcp_sr_t *)(rtcp+1);
+	sr->ssrc = myssrc;
+	sr->ntp_hi = htonl(ntp_hi);
+	sr->ntp_lo = htonl(ntp_lo);
+	sr->rtp_ts = htonl(rtp_ts_offset + ntp_ts);
+	sr->pkts = htonl(pkts_sent);
+	sr->bytes = htonl(bytes_sent);
+
+	/*printf("SR sent: ssrc=%08x ntp=%08x.%08x rtp=%08x pkts=%d bytes=%d\n",
+	       myssrc,  ntp_hi, ntp_lo, rtp_ts_offset + ntp_ts, pkts_sent,
+	       bytes_sent);*/
+	p = (uint8 *)(sr+1);
+    } else {
+	pt = RTCP_PT_RR;
+
+	rr = (rtcp_rr_t *)(rtcp+1);
+	rr->ssrc = myssrc;
+
+	p = (uint8 *)(rr+1);
+    }
+
+    for (i=0; i<=max_source; i++) {
+	if (!source[i].inuse || source[i].ssrc == myssrc ||
+	    source[i].last_rcvd == source[i].pkts_rcvd) continue;
+
+	rcvd = source[i].pkts_rcvd - source[i].last_rcvd;
+	expected = source[i].pkts_expected - source[i].last_expected;
+
+	source[i].last_expected = source[i].pkts_expected;
+	source[i].last_rcvd = source[i].pkts_rcvd;
+
+	if (expected > 0) {
+	    lossfrac = ((expected - rcvd) << 8) / expected;
+	} else {
+	    lossfrac = 0;
+	}
+
+	losscount = source[i].pkts_expected - source[i].pkts_rcvd;
+	jitter = source[i].jitter >> 4;
+	lsr = source[i].last_sr_ntp;
+	dlsr = ntp_ts-lsr;
+
+	rritem = (rtcp_rritem_t *) p;
+	rritem->ssrc = source[i].ssrc;
+	rritem->loss = htonl((lossfrac << RTCP_LOSS_FRACSHIFT) +
+			     (losscount & RTCP_LOSS_CNTMASK));
+	rritem->extseq = htonl(source[i].extseq);
+	rritem->jitter = htonl(jitter);
+	rritem->lsr = htonl(lsr);
+	rritem->dlsr = htonl(dlsr);
+
+	/*printf("RR sent: ssrc=%08x frac=%.2f%% lost=%d extseq=%08x "
+	       "jitter=%d lsr=%08x dlsr=%.2f sec\n", source[i].ssrc,
+	       100*lossfrac/256., losscount, source[i].extseq, jitter,
+	       lsr, dlsr/65536.);*/
+	rrcount++;
+    }
+
+    p = (uint8 *)(rritem+rrcount);
+    rtcp->flags = htons(RTP_V2 | (rrcount << RTCP_CNTSHIFT) | pt);
+    rtcp->len = htons((p-start)/4-1);
+
+    start = p;
+    rtcp = (rtcphdr_t *) start;
+    p = (uint8 *)(rtcp+1);
+
+    ssrcp = (uint32 *) p;
+    *ssrcp = myssrc;
+    p = (uint8 *)(ssrcp+1);
+
+    p = AddSDESItem(p, RTCP_SDES_CNAME, mycname, strlen(mycname));
+    p = AddSDESItem(p, RTCP_SDES_NAME, myname, strlen(myname));
+
+    align = ((uintptr_t) p) & 3;
+    if (align > 0) {
+	memset(p, 0, align);
+	p += 4-align;
+    }
+
+    rtcp->flags = htons(RTP_V2 | (1 << RTCP_CNTSHIFT) | RTCP_PT_SDES);
+    rtcp->len = htons((p-start)/4-1);
+
+    start = (uint8 *) packet;
+    (void) sendto(xmitfd, (char *)start, p-start, 0,
 		  (struct sockaddr *)&ctladdr, sizeof(ctladdr));
 }
 
@@ -865,8 +1028,8 @@ static void SendBye(void)
 	uint32		ssrc;
     } byepkt;
 
-    byepkt.h.flags = RTP_V2 | (1 << RTCP_CNTSHIFT) | RTCP_PT_BYE;
-    byepkt.h.len = 1;
+    byepkt.h.flags = htons(RTP_V2 | (1 << RTCP_CNTSHIFT) | RTCP_PT_BYE);
+    byepkt.h.len = htons(1);
     byepkt.ssrc = myssrc;
 
     (void) sendto(xmitfd, (char *)&byepkt, sizeof(byepkt), 0,
@@ -877,10 +1040,14 @@ static void SendBye(void)
 static void CheckIdle(ClientData clientData)
 {
     int i;
+    int32 tdiff;
     struct timeval t;
     char cmd[256];
 
     gettimeofday(&t, NULL);
+
+    if (t.tv_sec-last_report >= REPORT_TIME)
+	SendReport();
 
     for (i=0; i<=max_source; i++) {
 	if (source[i].image == NULL) continue;
@@ -1170,6 +1337,7 @@ static int SendVideoCmd(ClientData clientData, Tcl_Interp *interp, int argc,
 	    return TCL_ERROR;
 	}
 
+	rtp_ts_offset = (uint32) mrand48();
 	enc_state = (*encoding->start)(grabber, max_bandwidth,
 				       min_framespacing,
 				       xmit_size|xmit_color);
@@ -1268,10 +1436,13 @@ int main(int argc, char *argv[])
     char *cmd, *slash, *addr, *port, *enc;
     struct hostent *hp;
     struct passwd *pw;
+    struct timeval t;
     int i, grabber_found=0, max_framerate;
 
-    srand48(time(0));
-    myssrc = lrand48();
+    gettimeofday(&t, NULL);
+    srand48(t.tv_sec*t.tv_usec);
+    myssrc = (uint32) mrand48();
+    rtp_ts_offset = (uint32) mrand48();
 
     interp = Tcl_CreateInterp();
     cmd = Tcl_Concat(argc, argv);
@@ -1350,18 +1521,19 @@ int main(int argc, char *argv[])
 		       NULL);
 
     if ((pw = getpwuid(getuid())) == NULL) {
-	strcpy(myname, "nobody");
+	strcpy(mycname, "nobody");
     } else {
-	strcpy(myname, pw->pw_name);
+	strcpy(mycname, pw->pw_name);
     }
 
-    strcat(myname, "@");
+    strcat(mycname, "@");
 
     gethostname(buf, sizeof(buf)-1);
     if ((hp = gethostbyname(buf)) != NULL)
 	    strncpy(buf, hp->h_name, sizeof(buf)-1);
-    strncpy(myname+strlen(myname), buf, sizeof(myname)-strlen(myname)-1);
-    myname[sizeof(myname)-1] = '\0';
+    strncpy(mycname+strlen(mycname), buf, sizeof(mycname)-strlen(mycname)-1);
+    mycname[sizeof(mycname)-1] = '\0';
+    strcpy(myname, mycname);
 
     Tcl_CreateCommand(interp, "exit", ExitCmd, 0, NULL);
     Tcl_CreateCommand(interp, "changeBrightness", ChangeBrightnessCmd, 0, NULL);
