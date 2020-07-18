@@ -1337,7 +1337,6 @@ static int SendVideoCmd(ClientData clientData, Tcl_Interp *interp, int argc,
 	    return TCL_ERROR;
 	}
 
-	rtp_ts_offset = (uint32) mrand48();
 	enc_state = (*encoding->start)(grabber, max_bandwidth,
 				       min_framespacing,
 				       xmit_size|xmit_color);
