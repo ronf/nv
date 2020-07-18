@@ -47,7 +47,7 @@
 #NVLIBS	   = -L/usr/local/lib -ltk4.0 -ltcl7.4 -lmme -lXext -lX11 -lm
 #CFLAGS	   = -migrate -g3 -O2 -DLITTLE_BITFIELDS -DJ300 -DJ300_MME \
 #	     -DMME_FRAME -DX11GRAB $(INCS)
-#GRAB_OBJS = j300_grab.o jvdriverint.o
+#GRAB_OBJS = j300_grab.o jvdriverint.o x11_grab.o
 
 #
 # Uncomment and edit these lines on a DEC Alpha without MME installed
@@ -55,7 +55,7 @@
 #INCS	   = -I/usr/local/include
 #NVLIBS	   = -L/usr/local/lib -ltk4.0 -ltcl7.4 -lXext -lX11 -lm
 #CFLAGS	   = -migrate -g3 -O2 -DLITTLE_BITFIELDS -DJ300 -DX11GRAB $(INCS)
-#GRAB_OBJS = j300_grab.o jvdriverint.o
+#GRAB_OBJS = j300_grab.o jvdriverint.o x11_grab.o
 
 #
 # Uncomment and edit these lines on an 80x86 running BSDI
