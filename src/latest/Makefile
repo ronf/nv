@@ -78,8 +78,8 @@
 #
 #INCS	   = -I/usr/local/include
 #NVLIBS	   = -L/usr/local/lib -ltk4.0 -ltcl7.4 -lXext -lX11 -lm
-#CFLAGS	   = -g3 -O2 -DX11GRAB $(INCS)
-#GRAB_OBJS = x11_grab.o
+#CFLAGS	   = -g3 -O2 -DV4L2 -DX11GRAB $(INCS)
+#GRAB_OBJS = v4l2.o x11_grab.o
 
 #
 # Uncomment and edit these lines on a macOS system

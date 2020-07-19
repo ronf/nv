@@ -31,6 +31,36 @@ pack append .grabControls.mac \
     .grabControls.mac.title {top fill} \
     .grabControls.mac.radios {top fill}
 
+set v4l2Port 0
+
+frame .grabControls.v4l2
+
+label .grabControls.v4l2.title -text "Video for Linux 2 controls"
+
+frame .grabControls.v4l2.radios
+
+frame .grabControls.v4l2.radios.port
+
+set idx 0
+if {[info exists v4l2Ports]} {
+    foreach port $v4l2Ports {
+	pack append .grabControls.v4l2.radios.port \
+	    [radiobutton .grabControls.v4l2.radios.port.port$idx -text $port \
+		-relief flat -variable v4l2Port -value $idx \
+		-anchor w] {top fill}
+	incr idx
+    }
+}
+
+pack append .grabControls.v4l2.radios \
+    [frame .grabControls.v4l2.radios.fill1] {left expand fill} \
+    .grabControls.v4l2.radios.port {left fill} \
+    [frame .grabControls.v4l2.radios.fill2] {left expand fill}
+
+pack append .grabControls.v4l2 \
+    .grabControls.v4l2.title {top fill} \
+    .grabControls.v4l2.radios {top fill}
+
 set pvidPort 2
 
 frame .grabControls.parcvid

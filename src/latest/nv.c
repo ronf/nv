@@ -55,6 +55,9 @@
 #ifdef MAC
 #include "mac_grab.h"
 #endif
+#ifdef V4L2
+#include "v4l2.h"
+#endif
 #ifdef PARCVID
 #include "parcvid_grab.h"
 #endif
@@ -136,6 +139,10 @@ static grabber_t *grabber, grabbers[] = {
 #ifdef MAC
     { "Mac Video", "mac", Mac_Probe, Mac_Attach,
       Mac_Detach, Mac_Start, Mac_Stop, 0 },
+#endif
+#ifdef V4L2
+    { "Video for Linux 2", "v4l2", V4L2_Probe, V4L2_Attach,
+      V4L2_Detach, V4L2_Start, V4L2_Stop, 0 },
 #endif
 #ifdef PARCVID
     { "PARC Video", "parcvid", PARCVid_Probe, PARCVid_Attach,
